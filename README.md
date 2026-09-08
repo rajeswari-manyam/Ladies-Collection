@@ -1,75 +1,110 @@
-# React + TypeScript + Vite
+# Ladies Collection
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Ladies Collection is a responsive fashion ecommerce demo built with React, TypeScript, Vite, Tailwind CSS, Zustand, and React Router.
 
-Currently, two official plugins are available:
+The project includes three connected experiences:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Customer storefront with product browsing, search, cart, checkout, orders, profile, and notifications
+- Admin portal for managing products, vendors, orders, payments, reports, and settings
+- Vendor portal for managing listings, orders, shipping, earnings, and settlements
 
-## React Compiler
+The application currently runs on local mock data. No real accounts, payments, or orders are used.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Requirements
 
-## Expanding the ESLint configuration
+- Node.js 18 or newer
+- npm
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Getting Started
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+Install dependencies:
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Start the development server:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm run dev
 ```
+
+Build for production:
+
+```bash
+npm run build
+```
+
+Preview the production build:
+
+```bash
+npm run preview
+```
+
+Run ESLint:
+
+```bash
+npm run lint
+```
+
+## Main Routes
+
+| Experience | Route |
+| --- | --- |
+| Customer storefront | `/shop` |
+| Customer login | `/shop/login` |
+| Customer registration | `/shop/register` |
+| Customer cart | `/shop/cart` |
+| Customer profile | `/shop/profile` |
+| Admin login | `/login` |
+| Admin portal | `/` |
+| Vendor login | `/vendor/login` |
+| Vendor portal | `/vendor` |
+
+## Demo Accounts
+
+Customer:
+
+- Email: `ananya@example.com`
+- Password: any password with 4 or more characters
+
+Admin:
+
+- Email: `admin@ladiescollection.demo`
+- Password: any password with 6 or more characters
+
+Vendor:
+
+- Email: `priya@fashiontrends.demo`
+- Password: any password with 6 or more characters
+
+The demo accounts and session state are stored locally in the browser through Zustand persistence.
+
+## Project Structure
+
+```text
+src/
+  app/             Shared data, components, charts, and UI primitives
+  config/          Axios, Supabase, and React Query configuration
+  features/
+    admin/         Admin portal pages and hooks
+    auth/          Login and registration pages
+    customer/      Storefront pages and customer data
+    vendor/        Vendor portal pages and hooks
+  layouts/         Storefront, admin, vendor, and auth layouts
+  routes/          Application route registry
+  services/        API service abstractions
+  store/           Zustand authentication, cart, and wishlist stores
+  styles/          Shared styling
+  types/           Shared TypeScript types
+```
+
+## Branding
+
+The Ladies Collection logo is stored at `src/assets/Lc.png`. It is used by the storefront, portal layouts, login screens, and browser favicon.
+
+## Notes
+
+- Customer logout is available from the profile menu and profile page.
+- Cart, wishlist, authentication, and profile changes are mock browser-local state.
+- The production build may report a large JavaScript chunk warning; this does not prevent the build from completing.
