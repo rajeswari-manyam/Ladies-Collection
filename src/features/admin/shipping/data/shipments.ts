@@ -1,0 +1,1 @@
+export { shipments } from '@/features/admin/payments/data/payments'

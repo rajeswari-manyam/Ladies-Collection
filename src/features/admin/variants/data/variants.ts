@@ -1,0 +1,1 @@
+export { productVariants } from '@/features/admin/products/data/products'
