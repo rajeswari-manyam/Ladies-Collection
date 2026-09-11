@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { Check, LayoutGrid, Plus, Star } from 'lucide-react'
-import { toast } from 'sonner'
 import { useCategories } from '@/features/admin/hooks'
 import { PageHeader } from '@/layouts/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -12,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ErrorState, EmptyState } from '@/components/common/state'
 import { GradientArtwork } from '@/components/common/artwork'
 import { formatNumber } from '@/utils'
+import { NewCategoryDialog } from '@/features/admin/categories/components/NewCategoryDialog'
 import { categories as staticCategories } from '@/features/admin/categories/data/categories'
 import { subcategories as staticSubcategories } from '@/features/admin/subcategories/data/subcategories'
 
@@ -19,6 +19,7 @@ export function CategoriesPage() {
   const { data, isLoading, isError, refetch } = useCategories()
   const [view, setView] = useState<'categories' | 'subcategories'>('categories')
   const [featuredOnly, setFeaturedOnly] = useState(false)
+  const [newCategoryOpen, setNewCategoryOpen] = useState(false)
 
   const countMap = useMemo(() => {
     const map = new Map<string, number>()
@@ -49,7 +50,7 @@ export function CategoriesPage() {
         title="Categories & subcategories"
         description="Organise the marketplace taxonomy that powers storefront navigation."
         actions={
-          <Button size="sm" onClick={() => toast.info('New category flow opened (demo)')}>
+          <Button size="sm" onClick={() => setNewCategoryOpen(true)}>
             <Plus className="size-4" />
             New category
           </Button>
@@ -147,6 +148,8 @@ export function CategoriesPage() {
           })}
         </div>
       )}
+
+      <NewCategoryDialog open={newCategoryOpen} onOpenChange={setNewCategoryOpen} onCreated={refetch} />
     </div>
   )
 }

@@ -25,7 +25,7 @@ import { settings } from '@/features/admin/settings/data/settings'
 import { notifications, settlements } from '@/features/admin/settlements/data/settlements'
 import { subcategories } from '@/features/admin/subcategories/data/subcategories'
 import { vendors } from '@/features/admin/vendors/data/vendors'
-import type { OrderStatus } from '@/features/admin/types'
+import type { Category, OrderStatus } from '@/features/admin/types'
 import type { PaymentStatus, ProductStatus, SettlementStatus, ShipmentStatus } from '@/types'
 
 export function useDashboard() {
@@ -74,7 +74,32 @@ export function useVendors() {
 export function useCategories() {
   return useQuery({
     queryKey: ['admin', 'categories'],
-    queryFn: async () => ({ categories, subcategories }),
+    queryFn: async () => ({ categories: [...categories], subcategories: [...subcategories] }),
+  })
+}
+
+export function useAddCategory() {
+  return useMutation({
+    mutationFn: async (payload: {
+      name: string
+      description?: string
+      featured?: boolean
+      hue?: number
+    }) => {
+      const slug = payload.name.trim().toLowerCase().replace(/\s+/g, '-')
+      const next: Category = {
+        id: `cat-${slug}-${Date.now().toString(36)}`,
+        name: payload.name.trim(),
+        slug,
+        description: payload.description?.trim() ?? '',
+        image: slug,
+        productCount: 0,
+        featured: payload.featured ?? false,
+        hue: payload.hue ?? 336,
+      }
+      categories.push(next)
+      return next
+    },
   })
 }
 
