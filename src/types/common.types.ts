@@ -31,6 +31,8 @@ export interface Vendor {
   status: 'active' | 'pending' | 'suspended'
   joined: string
   logoHue: number
+  verificationStatus?: string
+  gstNumber?: string
 }
 
 export interface Category {
@@ -137,7 +139,15 @@ export interface Payment {
   createdAt: string
 }
 
-export type ShipmentStatus = 'pending' | 'in-transit' | 'out-for-delivery' | 'delivered' | 'failed'
+export type ShipmentStatus =
+  | 'pending'
+  | 'picked_up'
+  | 'in-transit'
+  | 'out-for-delivery'
+  | 'delivered'
+  | 'returned'
+  | 'failed'
+
 
 export interface Shipment {
   id: string
@@ -149,7 +159,7 @@ export interface Shipment {
   origin: string
   destination: string
   status: ShipmentStatus
-  estDelivery: string
+  estDelivery: string | null
   createdAt: string
 }
 

@@ -11,7 +11,8 @@ import { DataTable, type AppColumnDef } from '@/components/ui/data-table'
 import { ErrorState } from '@/components/common/state'
 import { ProductThumb } from '@/components/common/artwork'
 import { formatCurrency } from '@/utils'
-import type { ProductVariant } from '@/features/admin/types'
+import { variantName, variantRefName } from '@/services/variant.service'
+import type { ApiProductVariant } from '@/services/variant.service'
 
 export function InventoryPage() {
   const { data: variants, isLoading, isError, refetch } = useProductVariants()
@@ -23,16 +24,22 @@ export function InventoryPage() {
     return map
   }, [products])
 
+  const variantRefId = (variant: ApiProductVariant): string => {
+    if (typeof variant.productId === 'string') return variant.productId
+    return variant.productId?._id ?? ''
+  }
+
   const rows = useMemo(() => {
     let list = variants ?? []
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter((v) => {
-        const product = productMap.get(v.productId)
+        const product = productMap.get(variantRefId(v))
         return (
           v.sku.toLowerCase().includes(q) ||
-          v.name.toLowerCase().includes(q) ||
-          (product?.name.toLowerCase().includes(q) ?? false)
+          variantName(v).toLowerCase().includes(q) ||
+          (product?.name.toLowerCase().includes(q) ?? false) ||
+          variantRefName(v.productId).toLowerCase().includes(q)
         )
       })
     }
@@ -41,7 +48,7 @@ export function InventoryPage() {
 
   const stockHealth = (stock: number) => (stock === 0 ? 'destructive' : stock < 25 ? 'warning' : 'success')
 
-  const columns = useMemo<AppColumnDef<ProductVariant>[]>(
+  const columns = useMemo<AppColumnDef<ApiProductVariant>[]>(
     () => [
       {
         accessorKey: 'sku',
@@ -56,12 +63,13 @@ export function InventoryPage() {
         accessorKey: 'productId',
         header: 'Product',
         cell: ({ row }) => {
-          const product = productMap.get(row.original.productId)
+          const product = productMap.get(variantRefId(row.original))
+          const name = product?.name ?? variantRefName(row.original.productId) ?? '—'
           return (
             <div className="flex items-center gap-3">
-              <ProductThumb seed={product?.name ?? 'Item'} color={product?.color ?? 'transparent'} className="size-9" />
+              <ProductThumb seed={name ?? 'Item'} color={product?.color ?? 'transparent'} className="size-9" />
               <div className="min-w-0">
-                <p className="max-w-56 truncate font-medium">{product?.name ?? '—'}</p>
+                <p className="max-w-56 truncate font-medium">{name}</p>
                 {product?.status === 'draft' && <p className="text-[11px] text-muted-foreground">Draft listing</p>}
               </div>
             </div>
@@ -69,29 +77,30 @@ export function InventoryPage() {
         },
       },
       {
-        accessorKey: 'name',
+        id: 'variant',
+        accessorKey: 'sku',
         header: 'Variant',
-        cell: ({ row }) => <span>{row.original.name}</span>,
+        cell: ({ row }) => <span>{variantName(row.original)}</span>,
       },
       {
         accessorKey: 'size',
         header: 'Size',
-        cell: ({ row }) => <Badge variant="outline">{row.original.size}</Badge>,
+        cell: ({ row }) => <Badge variant="outline">{row.original.size || '—'}</Badge>,
       },
       {
         accessorKey: 'color',
         header: 'Color',
         cell: ({ row }) => (
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-3 rounded-full border border-border" style={{ background: row.original.color }} />
-            {row.original.color}
+            {row.original.color && <span className="size-3 rounded-full border border-border" style={{ background: row.original.color }} />}
+            {row.original.color || '—'}
           </span>
         ),
       },
       {
-        accessorKey: 'price',
+        accessorKey: 'customerSellingPrice',
         header: 'Price',
-        cell: ({ row }) => <span className="font-medium">{formatCurrency(row.original.price)}</span>,
+        cell: ({ row }) => <span className="font-medium">{formatCurrency(row.original.customerSellingPrice)}</span>,
       },
       {
         accessorKey: 'stock',
@@ -131,7 +140,7 @@ export function InventoryPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => toast.success('Inventory synced', { description: 'All vendor stock levels refreshed from the mock feed.' })}
+            onClick={() => refetch().then(() => toast.success('Inventory synced', { description: 'Vendor stock levels refreshed from the API.' }))}
           >
             <Boxes className="size-4" />
             Sync stock

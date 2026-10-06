@@ -1,13 +1,20 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'motion/react'
-import { Eye, Globe, Mail, MapPin, MoreHorizontal, Pause, Play, Star, Wallet } from 'lucide-react'
+import { Ban, Clock3, Eye, Globe, Mail, MapPin, MoreHorizontal, Pause, Play, ShieldCheck, Star, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
-import { useVendors, useToggleVendorStatus, useCategories } from '@/features/admin/hooks'
+import {
+  useVendors,
+  useToggleVendorStatus,
+  useCategories,
+  useApproveVendor,
+  useRejectVendor,
+} from '@/features/admin/hooks'
 import { PageHeader } from '@/layouts/PageHeader'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   DropdownMenu,
@@ -29,6 +36,8 @@ export function VendorsPage() {
   const { data: vendors, isLoading, isError, refetch } = useVendors()
   const { data: categories } = useCategories()
   const toggleStatus = useToggleVendorStatus()
+  const approveVendor = useApproveVendor()
+  const rejectVendor = useRejectVendor()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
 
@@ -52,8 +61,32 @@ export function VendorsPage() {
   const toggle = (vendor: Vendor) => {
     const action = vendor.status === 'suspended' ? 'reactivated' : 'suspended'
     toggleStatus.mutate(vendor.id, {
-      onSuccess: () => toast.success(`Vendor ${action}`, { description: `${vendor.name} was updated.` }),
+      onSuccess: () => {
+        toast.success(`Vendor ${action}`, { description: `${vendor.name} was updated.` })
+        refetch()
+      },
       onError: () => toast.error('Update failed — please retry'),
+    })
+  }
+
+  const approve = (vendor: Vendor) => {
+    approveVendor.mutate(vendor.id, {
+      onSuccess: () => {
+        toast.success('Vendor approved', { description: `${vendor.name} is now verified on the marketplace.` })
+        refetch()
+      },
+      onError: (err) => toast.error(err instanceof Error ? err.message : 'Approval failed — please retry'),
+    })
+  }
+
+  const reject = (vendor: Vendor) => {
+    if (!window.confirm(`Reject vendor "${vendor.name}"? They will be notified and cannot sell until re-approved.`)) return
+    rejectVendor.mutate(vendor.id, {
+      onSuccess: () => {
+        toast.success('Vendor rejected', { description: `${vendor.name} was rejected.` })
+        refetch()
+      },
+      onError: (err) => toast.error(err instanceof Error ? err.message : 'Rejection failed — please retry'),
     })
   }
 
@@ -136,6 +169,19 @@ export function VendorsPage() {
                         Payout history
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
+                      {vendor.verificationStatus === 'pending' && (
+                        <>
+                          <DropdownMenuItem onClick={() => approve(vendor)}>
+                            <ShieldCheck />
+                            Approve
+                          </DropdownMenuItem>
+                          <DropdownMenuItem variant="destructive" onClick={() => reject(vendor)}>
+                            <Ban />
+                            Reject
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                        </>
+                      )}
                       <DropdownMenuItem onClick={() => toggle(vendor)} variant={vendor.status === 'suspended' ? 'default' : 'destructive'}>
                         {vendor.status === 'suspended' ? <Play /> : <Pause />}
                         {vendor.status === 'suspended' ? 'Reactivate' : 'Suspend'}
@@ -149,8 +195,19 @@ export function VendorsPage() {
                   <div className="min-w-0">
                     <h3 className="truncate font-serif text-base font-semibold leading-tight">{vendor.name}</h3>
                     <p className="text-xs text-muted-foreground">{categoryName(vendor.category)}</p>
-                    <div className="mt-1.5 flex items-center gap-2">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
                       <VendorStatusBadge status={vendor.status} />
+                      {vendor.verificationStatus === 'pending' ? (
+                        <Badge variant="warning" className="gap-1">
+                          <Clock3 className="size-3" />
+                          Pending verification
+                        </Badge>
+                      ) : vendor.verificationStatus === 'verified' ? (
+                        <Badge variant="success" className="gap-1">
+                          <ShieldCheck className="size-3" />
+                          Verified
+                        </Badge>
+                      ) : null}
                       <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-500">
                         <Star className="size-3.5 fill-current" />
                         {vendor.rating > 0 ? vendor.rating.toFixed(1) : 'New'}
@@ -189,6 +246,30 @@ export function VendorsPage() {
                   <span>Commission {(vendor.commissionRate * 100).toFixed(0)}%</span>
                   <span>Joined {formatDate(vendor.joined)}</span>
                 </div>
+
+                {vendor.verificationStatus === 'pending' && (
+                  <div className="mt-4 flex gap-2 border-t border-border pt-4">
+                    <Button
+                      size="sm"
+                      className="flex-1"
+                      disabled={approveVendor.isPending}
+                      onClick={() => approve(vendor)}
+                    >
+                      <ShieldCheck className="size-4" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1"
+                      disabled={rejectVendor.isPending}
+                      onClick={() => reject(vendor)}
+                    >
+                      <Ban className="size-4" />
+                      Reject
+                    </Button>
+                  </div>
+                )}
               </Card>
             </motion.div>
           ))}

@@ -1,4 +1,13 @@
 import { Badge } from '@/components/ui/badge'
+import {
+  orderStatusText,
+  orderStatusTone,
+  paymentStatusText,
+  paymentStatusTone,
+  shipmentStatusText,
+  shipmentStatusTone,
+  type StatusTone,
+} from '@/components/common/workflow-status'
 import type {
   Customer,
   NotificationType,
@@ -10,7 +19,7 @@ import type {
   Vendor,
 } from '@/types'
 
-type BadgeTone = 'rose' | 'success' | 'warning' | 'info' | 'neutral' | 'destructive'
+type BadgeTone = StatusTone
 
 const orderTones: Record<OrderStatus, BadgeTone> = {
   pending: 'warning',
@@ -26,14 +35,6 @@ const paymentTones: Record<PaymentStatus, BadgeTone> = {
   pending: 'warning',
   failed: 'destructive',
   refunded: 'destructive',
-}
-
-const shipmentTones: Record<ShipmentStatus, BadgeTone> = {
-  pending: 'warning',
-  'in-transit': 'info',
-  'out-for-delivery': 'info',
-  delivered: 'success',
-  failed: 'destructive',
 }
 
 const settlementTones: Record<SettlementStatus, BadgeTone> = {
@@ -62,20 +63,22 @@ const customerTones: Record<Customer['status'], BadgeTone> = {
   blocked: 'destructive',
 }
 
-export function orderStatusLabel(status: OrderStatus) {
-  return status.replace('-', ' ')
-}
-
+/**
+ * Portal labels come from the portal status vocabulary, so they are read
+ * through the shared table rather than formatted per screen.
+ */
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
-  return <Badge variant={orderTones[status]} className="capitalize">{orderStatusLabel(status)}</Badge>
+  return <Badge variant={orderTones[status] ?? orderStatusTone(status)}>{orderStatusText(status)}</Badge>
 }
 
 export function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
-  return <Badge variant={paymentTones[status]} className="capitalize">{status}</Badge>
+  return (
+    <Badge variant={paymentTones[status] ?? paymentStatusTone(status)}>{paymentStatusText(status)}</Badge>
+  )
 }
 
 export function ShipmentStatusBadge({ status }: { status: ShipmentStatus }) {
-  return <Badge variant={shipmentTones[status]} className="capitalize">{status}</Badge>
+  return <Badge variant={shipmentStatusTone(status)}>{shipmentStatusText(status)}</Badge>
 }
 
 export function SettlementStatusBadge({ status }: { status: SettlementStatus }) {

@@ -48,8 +48,8 @@ export function VendorDashboardPage() {
     [orders],
   )
 
-  const topSelling = useMemo(
-    () => (products ? [...products].sort((a, b) => b.sold - a.sold).slice(0, 5) : []),
+  const recentProducts = useMemo(
+    () => (products ? [...products].slice(0, 5) : []),
     [products],
   )
 
@@ -190,7 +190,7 @@ export function VendorDashboardPage() {
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Top products</CardTitle>
-              <CardDescription>Your best-selling listings</CardDescription>
+              <CardDescription>Your latest listings</CardDescription>
             </div>
             <Button variant="ghost" size="sm" asChild>
               <Link to="/vendor/products">
@@ -201,16 +201,18 @@ export function VendorDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 gap-2">
-              {topSelling.map((p) => (
-                <div key={p.id} className="flex items-start gap-3 rounded-xl border border-border p-3">
+              {recentProducts.map((p) => (
+                <div key={p._id} className="flex items-start gap-3 rounded-xl border border-border p-3">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{p.name}</p>
-                    <p className="text-xs text-muted-foreground">{p.category}</p>
+                    <p className="text-xs text-muted-foreground">{p.brand || 'Unbranded'}</p>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-sm font-semibold">{formatCurrency(p.price)}</p>
-                    <p className="text-xs text-muted-foreground">{formatNumber(p.sold)} sold</p>
-                  </div>
+                  <Badge
+                    variant={p.approvalStatus === 'approved' ? 'success' : p.approvalStatus === 'rejected' ? 'destructive' : 'warning'}
+                    className="capitalize shrink-0"
+                  >
+                    {p.approvalStatus}
+                  </Badge>
                 </div>
               ))}
             </div>

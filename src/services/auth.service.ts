@@ -1,23 +1,91 @@
 import type { StoreProfile } from '@/types'
-import { delay } from '@/utils/mock-helpers'
-import { ananya } from '@/features/customer/data/account'
+import { API_BASE_URL, apiRequest } from '@/services/http'
 
-export const ADMIN_EMAIL = 'admin@ladiescollection.demo'
-export const VENDOR_EMAIL = 'priya@fashiontrends.demo'
+export const AUTH_API_BASE_URL = API_BASE_URL
+
+export const ADMIN_EMAIL = 'admin@ladies.co'
+
+export type UserRole = 'admin' | 'customer' | 'vendor'
+export type UserStatus = 'active' | 'blocked'
+
+export interface ApiUser {
+  _id: string
+  name: string
+  email: string
+  mobile: string
+  role: UserRole
+  status: UserStatus
+  profileImage: string | null
+  isEmailVerified: boolean
+  isMobileVerified: boolean
+  pushEnabled: boolean
+  resetPasswordOtpExpires?: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface AuthResult {
+  user: ApiUser
+  token: string
+  signedInAt: string
+}
+
+export interface LoginInput {
+  email: string
+  password: string
+}
+
+export interface RegisterCustomerInput {
+  name: string
+  email: string
+  mobile: string
+  password: string
+}
+
+export interface RegisterInput extends RegisterCustomerInput {
+  role?: UserRole
+}
+
+export interface ChangePasswordInput {
+  currentPassword: string
+  newPassword: string
+}
+
+export interface UpdateProfileInput {
+  name?: string
+  profileImage?: string | null
+}
+
+export interface UserQuery {
+  page?: number
+  limit?: number
+  role?: UserRole
+}
+
+export interface PaginatedUsers {
+  users: ApiUser[]
+  total: number
+  page: number
+  totalPages: number
+}
 
 export interface AdminProfile {
+  id: string
   name: string
   email: string
   role: string
   initials: string
+  profileImage: string | null
 }
 
 export interface AdminSession {
   profile: AdminProfile
+  token: string
   signedInAt: string
 }
 
 export interface VendorSessionProfile {
+  id: string
   name: string
   businessName: string
   vendorId: string
@@ -28,92 +96,157 @@ export interface VendorSessionProfile {
 
 export interface VendorSession {
   profile: VendorSessionProfile
+  token: string
   signedInAt: string
 }
 
 export interface CustomerSession {
   profile: StoreProfile
   email: string
+  token: string
   signedInAt: string
 }
 
-export interface RegisterCustomerInput {
-  name: string
-  email: string
-  mobile: string
-  password: string
+function roleLabel(role: UserRole): string {
+  switch (role) {
+    case 'admin':
+      return 'Marketplace Admin'
+    case 'vendor':
+      return 'Vendor'
+    case 'customer':
+      return 'Customer'
+  }
+}
+
+function initialsOf(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((part) => part[0] ?? '')
+    .join('')
+    .toUpperCase()
+    .slice(0, 2)
+}
+
+function assertRole(user: ApiUser, role: UserRole) {
+  if (user.role !== role) {
+    throw new Error(`This account is not registered as ${role}`)
+  }
+}
+
+function toStoreProfile(user: ApiUser): StoreProfile {
+  return {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    mobile: user.mobile,
+    city: '',
+    joined: (user.createdAt ?? new Date().toISOString()).slice(0, 10),
+    membersTier: 'Member',
+    ordersCount: 0,
+    wishlistCount: 0,
+    coupons: 0,
+    hue: 336,
+  }
+}
+
+export async function login(input: LoginInput): Promise<AuthResult> {
+  const data = await apiRequest<AuthResult>({ method: 'POST', url: '/auth/login', data: input })
+  return { ...data, signedInAt: new Date().toISOString() }
+}
+
+export async function register(input: RegisterInput): Promise<AuthResult> {
+  const data = await apiRequest<AuthResult>({ method: 'POST', url: '/auth/register', data: input })
+  return { ...data, signedInAt: new Date().toISOString() }
+}
+
+export async function changePassword(token: string, input: ChangePasswordInput): Promise<void> {
+  await apiRequest<unknown>({ method: 'PUT', url: '/auth/change-password', data: input, token })
+}
+
+export async function getProfile(token: string): Promise<ApiUser> {
+  return apiRequest<ApiUser>({ method: 'GET', url: '/auth/profile', token })
+}
+
+export async function updateProfile(token: string, input: UpdateProfileInput): Promise<ApiUser> {
+  return apiRequest<ApiUser>({ method: 'PUT', url: '/api/auth/profile', data: input, token })
+}
+
+export async function getAllUsers(query: UserQuery = {}, token: string): Promise<PaginatedUsers> {
+  const params = new URLSearchParams()
+  if (query.page) params.set('page', String(query.page))
+  if (query.limit) params.set('limit', String(query.limit))
+  if (query.role) params.set('role', query.role)
+  const qs = params.toString()
+  return apiRequest<PaginatedUsers>({
+    method: 'GET',
+    url: qs ? `/getallusers?${qs}` : '/getallusers',
+    token,
+  })
 }
 
 export async function authenticateAdmin(email: string, password: string): Promise<AdminSession> {
-  await delay(700)
-  const validEmail = email.trim().toLowerCase()
-  if (validEmail !== ADMIN_EMAIL) {
-    throw new Error('No admin account found for this email')
+  if (email.trim().toLowerCase() !== ADMIN_EMAIL) {
+    throw new Error(`Admin access is only available for ${ADMIN_EMAIL}`)
   }
-  if (!password || password.length < 6) {
-    throw new Error('Password must be at least 6 characters')
-  }
+  const { user, token, signedInAt } = await login({ email, password })
+  assertRole(user, 'admin')
   return {
     profile: {
-      name: 'Adriana Moreau',
-      email: ADMIN_EMAIL,
-      role: 'Marketplace Admin',
-      initials: 'AM',
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: roleLabel(user.role),
+      initials: initialsOf(user.name),
+      profileImage: user.profileImage,
     },
-    signedInAt: new Date().toISOString(),
+    token,
+    signedInAt,
   }
 }
 
 export async function authenticateVendor(email: string, password: string): Promise<VendorSession> {
-  await delay(700)
-  const validEmail = email.trim().toLowerCase()
-  if (validEmail !== VENDOR_EMAIL) {
-    throw new Error('No vendor account found for this email')
-  }
-  if (!password || password.length < 6) {
-    throw new Error('Password must be at least 6 characters')
-  }
+  const { user, token, signedInAt } = await login({ email, password })
+  assertRole(user, 'vendor')
   return {
     profile: {
-      name: 'Priya Sharma',
-      businessName: 'Fashion Trends',
-      vendorId: 'VEN-1024',
-      email: VENDOR_EMAIL,
-      role: 'Vendor',
-      initials: 'PS',
+      id: user._id,
+      name: user.name,
+      businessName: `${user.name} Store`,
+      vendorId: `VEN-${String(user._id).slice(-4).toUpperCase()}`,
+      email: user.email,
+      role: roleLabel(user.role),
+      initials: initialsOf(user.name),
     },
-    signedInAt: new Date().toISOString(),
+    token,
+    signedInAt,
   }
 }
 
 export async function authenticateCustomer(email: string, password: string): Promise<CustomerSession> {
-  await delay(700)
-  const validEmail = email.trim().toLowerCase()
-  if (validEmail !== ananya.email) {
-    throw new Error('No account found for this email')
-  }
-  if (!password || password.length < 4) {
-    throw new Error('Incorrect password. Please try again')
-  }
-  return { profile: ananya, email: validEmail, signedInAt: new Date().toISOString() }
+  const { user, token, signedInAt } = await login({ email, password })
+  assertRole(user, 'customer')
+  return { profile: toStoreProfile(user), email: user.email, token, signedInAt }
 }
 
 export async function registerCustomer(input: RegisterCustomerInput): Promise<CustomerSession> {
-  await delay(800)
-  const { name, email, mobile, password } = input
-  const normalizedEmail = email.trim().toLowerCase()
-  if (!name.trim() || !normalizedEmail || !mobile.trim().replace(/\D/g, '')) {
-    throw new Error('Please fill in your details')
-  }
-  if (normalizedEmail === ananya.email) {
-    throw new Error('An account with this email already exists')
-  }
-  if (!password || password.length < 6) {
-    throw new Error('Password must be at least 6 characters')
-  }
+  const { user, token, signedInAt } = await register({ ...input, role: 'customer' })
+  return { profile: toStoreProfile(user), email: user.email, token, signedInAt }
+}
+
+export async function registerVendor(input: RegisterCustomerInput): Promise<VendorSession> {
+  const { user, token, signedInAt } = await register({ ...input, role: 'vendor' })
   return {
-    profile: { ...ananya, name: name.trim(), email: normalizedEmail, mobile: mobile.trim() },
-    email: normalizedEmail,
-    signedInAt: new Date().toISOString(),
+    profile: {
+      id: user._id,
+      name: user.name,
+      businessName: `${user.name} Store`,
+      vendorId: `VEN-${String(user._id).slice(-4).toUpperCase()}`,
+      email: user.email,
+      role: roleLabel(user.role),
+      initials: initialsOf(user.name),
+    },
+    token,
+    signedInAt,
   }
 }

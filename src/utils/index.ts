@@ -28,26 +28,105 @@ export function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(value)
 }
 
-export function formatDate(value: string | Date, opts?: Intl.DateTimeFormatOptions) {
+/**
+ * Coerces API-supplied values to a Date, or null when unusable. Backend dates
+ * arrive as empty strings or nulls, and formatting an Invalid Date throws a
+ * RangeError that unmounts the whole tree.
+ */
+function toDate(value: string | number | Date | null | undefined): Date | null {
+  if (value === null || value === undefined || value === '') return null
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+export function formatDate(
+  value: string | number | Date | null | undefined,
+  opts?: Intl.DateTimeFormatOptions,
+  fallback = '—',
+) {
+  const date = toDate(value)
+  if (!date) return fallback
   return new Intl.DateTimeFormat('en-IN', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
     ...opts,
-  }).format(typeof value === 'string' ? new Date(value) : value)
+  }).format(date)
 }
 
-export function formatDateTime(value: string | Date) {
+export function formatDateTime(
+  value: string | number | Date | null | undefined,
+  fallback = '—',
+) {
+  const date = toDate(value)
+  if (!date) return fallback
   return new Intl.DateTimeFormat('en-IN', {
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
-  }).format(typeof value === 'string' ? new Date(value) : value)
+  }).format(date)
 }
 
-export function timeAgo(value: string | Date) {
-  const date = typeof value === 'string' ? new Date(value) : value
+/**
+ * The single date format used by the payment, refund and settlement module:
+ * `03 Oct 2026, 02:30 PM`. Dates without a time component use `03 Oct 2026`.
+ * The value always comes from the API — these formatters never create one.
+ */
+export function formatDateFull(
+  value: string | number | Date | null | undefined,
+  fallback = '—',
+) {
+  const date = toDate(value)
+  if (!date) return fallback
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date)
+}
+
+export function formatDateTimeFull(
+  value: string | number | Date | null | undefined,
+  fallback = '—',
+) {
+  const date = toDate(value)
+  if (!date) return fallback
+  const formatted = new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date)
+  return formatted.replace(/\s*am$/i, ' AM').replace(/\s*pm$/i, ' PM')
+}
+
+/**
+ * Whether a deadline the API gave us has already passed. Compares two
+ * timestamps; it never produces a date to display.
+ */
+export function isDeadlinePassed(value: string | number | Date | null | undefined): boolean {
+  const date = toDate(value)
+  if (!date) return false
+  return date.getTime() < Date.now()
+}
+
+/** "Return available until 10 Oct 2026", or the expired phrasing. */
+export function returnWindowLabel(
+  value: string | number | Date | null | undefined,
+  fallback = 'Not available',
+) {
+  if (!toDate(value)) return fallback
+  return isDeadlinePassed(value)
+    ? `Return period expired on ${formatDateFull(value)}`
+    : `Return available until ${formatDateFull(value)}`
+}
+
+export function timeAgo(value: string | number | Date | null | undefined, fallback = '—') {
+  const date = toDate(value)
+  if (!date) return fallback
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
   const units: [number, string][] = [
     [60, 'second'],

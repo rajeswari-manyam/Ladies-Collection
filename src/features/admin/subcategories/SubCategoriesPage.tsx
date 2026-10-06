@@ -1,14 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Plus } from 'lucide-react'
+import { MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { useCategories, useAddSubcategory } from '@/features/admin/hooks'
+import { useCategories, useAddSubcategory, useDeleteSubcategory } from '@/features/admin/hooks'
 import { PageHeader } from '@/layouts/PageHeader'
 import { DataTable, type AppColumnDef } from '@/components/ui/data-table'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Dialog,
   DialogContent,
@@ -25,17 +31,21 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ErrorState, EmptyState } from '@/components/common/state'
-import type { Subcategory } from '@/features/admin/types'
+import type { Subcategory } from '@/types'
+import { EditSubcategoryDialog } from '@/features/admin/subcategories/components/EditSubcategoryDialog'
 
 export function SubCategoriesPage() {
   const { data, isLoading, isError, refetch } = useCategories()
   const addSubcategory = useAddSubcategory()
+  const { mutate: deleteMutate } = useDeleteSubcategory()
 
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [pending, setPending] = useState(false)
+  const [editingSub, setEditingSub] = useState<Subcategory | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const categoryName = useMemo(() => {
     const map = new Map(data?.categories.map((c) => [c.id, c.name]))
@@ -66,6 +76,7 @@ export function SubCategoriesPage() {
           setOpen(false)
           setName('')
           setCategoryId('')
+          refetch()
         },
         onError: () => toast.error('Could not add sub-category'),
         onSettled: () => setPending(false),
@@ -73,13 +84,21 @@ export function SubCategoriesPage() {
     )
   }
 
-  if (isError) {
-    return (
-      <div className="rounded-2xl border border-border bg-card p-8">
-        <ErrorState onRetry={refetch} />
-      </div>
-    )
-  }
+  const handleDelete = useCallback(
+    (sub: Subcategory) => {
+      if (!window.confirm(`Delete sub-category "${sub.name}"? This cannot be undone.`)) return
+      setDeletingId(sub.id)
+      deleteMutate(sub.id, {
+        onSuccess: () => {
+          toast.success('Sub-category deleted', { description: `${sub.name} was removed.` })
+          refetch()
+        },
+        onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not delete sub-category'),
+        onSettled: () => setDeletingId(null),
+      })
+    },
+    [deleteMutate, refetch],
+  )
 
   const columns = useMemo<AppColumnDef<Subcategory>[]>(
     () => [
@@ -105,9 +124,54 @@ export function SubCategoriesPage() {
         header: 'Product count',
         cell: ({ row }) => <span className="text-muted-foreground">{row.original.productCount} items</span>,
       },
+      {
+        id: 'actions',
+        header: undefined,
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Actions for ${row.original.name}`}
+                  disabled={deletingId === row.original.id}
+                >
+                  {deletingId === row.original.id ? (
+                    <span className="size-3.5 animate-spin rounded-full border-2 border-primary/40 border-t-primary" />
+                  ) : (
+                    <MoreHorizontal className="size-4" />
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuItem onClick={() => setEditingSub(row.original)}>
+                  <Pencil className="size-4" />
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => handleDelete(row.original)}
+                >
+                  <Trash2 className="size-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ),
+      },
     ],
-    [categoryName],
+    [categoryName, deletingId, handleDelete],
   )
+
+  if (isError) {
+    return (
+      <div className="rounded-2xl border border-border bg-card p-8">
+        <ErrorState onRetry={refetch} />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -188,6 +252,19 @@ export function SubCategoriesPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {editingSub && (
+        <EditSubcategoryDialog
+          key={editingSub.id}
+          subcategory={editingSub}
+          categories={data?.categories ?? []}
+          open={!!editingSub}
+          onOpenChange={(open) => {
+            if (!open) setEditingSub(null)
+          }}
+          onUpdated={refetch}
+        />
+      )}
     </div>
   )
 }

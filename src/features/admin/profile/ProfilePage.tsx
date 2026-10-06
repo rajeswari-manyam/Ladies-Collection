@@ -13,15 +13,25 @@ import { formatDateTime } from '@/utils/formatDate'
 
 export function AdminProfilePage() {
   const session = useAdminStore((s) => s.session)
+  const updateProfile = useAdminStore((s) => s.updateProfile)
   const profile = session?.profile
   const [name, setName] = useState(profile?.name ?? '')
   const [synced, setSynced] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   if (!profile) return null
 
-  const save = () => {
-    toast.success('Profile updated', { description: 'Your details were saved for this demo.' })
-    setSynced(true)
+  const save = async () => {
+    setSaving(true)
+    try {
+      await updateProfile({ name: name.trim() })
+      toast.success('Profile updated')
+      setSynced(true)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Profile update failed')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -81,8 +91,8 @@ export function AdminProfilePage() {
               <Label htmlFor="admin-name">Name</Label>
               <Input id="admin-name" value={name} onChange={(e) => { setName(e.target.value); setSynced(false) }} />
             </div>
-            <Button size="sm" onClick={save} disabled={synced}>
-              {synced ? 'Saved ✓' : 'Save changes'}
+            <Button size="sm" onClick={save} disabled={synced || saving}>
+              {saving ? 'Saving…' : synced ? 'Saved ✓' : 'Save changes'}
             </Button>
           </CardContent>
         </Card>

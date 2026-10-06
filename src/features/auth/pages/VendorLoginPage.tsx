@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { LockKeyhole, Sparkles, Store } from 'lucide-react'
 import { toast } from 'sonner'
-import { VENDOR_EMAIL, useVendorStore } from '@/store/appStore'
+import { useVendorStore } from '@/store/appStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -65,7 +66,7 @@ export function VendorLoginPage() {
               id="email"
               type="email"
               autoComplete="username"
-              placeholder="priya@fashiontrends.demo"
+              placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
@@ -100,14 +101,18 @@ export function VendorLoginPage() {
               </>
             )}
           </Button>
+
+          <p className="pt-1 text-center text-sm text-muted-foreground">
+            New to the portal?{' '}
+            <Link to="/vendor/register" className="font-medium text-primary hover:underline">
+              Register your store
+            </Link>
+          </p>
         </form>
 
         <div className="mt-6 flex items-start gap-2.5 rounded-2xl bg-blush-50 px-4 py-3 text-xs text-muted-foreground">
           <Store className="mt-0.5 size-4 shrink-0 text-primary" />
-          <p>
-            Demo access — use <span className="font-semibold text-foreground">{VENDOR_EMAIL}</span> with any password of
-            6+ characters.
-          </p>
+          <p>Register your store with any email, then sign in with the same email and password.</p>
         </div>
       </div>
     </div>

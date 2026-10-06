@@ -42,7 +42,7 @@ export function OrdersChart({ data }: OrdersChartProps) {
           <Tooltip content={<OrdersTooltip />} cursor={{ fill: 'rgba(211,58,107,0.05)' }} />
           <Bar dataKey="orders" name="Orders" radius={[6, 6, 0, 0]} barSize={22}>
             {data.map((entry, i) => (
-              <Cell key={entry.label} fill={COLORS[i % COLORS.length]} />
+              <Cell key={`${entry.label}-${i}`} fill={COLORS[i % COLORS.length]} />
             ))}
           </Bar>
         </BarChart>

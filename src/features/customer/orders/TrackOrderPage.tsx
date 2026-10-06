@@ -1,20 +1,81 @@
+import { useMemo } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
-import { Check, CircleDot, Loader2, MapPin, Package, Truck } from 'lucide-react'
-import { orderById } from '@/features/customer/data/account'
-import { storeProductById } from '@/features/customer/products/data/products'
+import { Loader2, MapPin, Package, Truck } from 'lucide-react'
 import { useAuthStore } from '@/store/appStore'
-import { StoreOrderStatusBadge } from '@/features/customer/orders/components/store-status-badge'
-import { ProductArt } from '@/features/customer/products/components/product-art'
+import { useOrder, useOrderShipments, useTrackShipment } from '@/features/customer/hooks'
+import { orderItemCount } from '@/services/order.service'
+import { shipmentMilestone, type Shipment, type TrackingResponse } from '@/services/shipment.service'
+import { OrderStatusChip, PaymentStatusChip } from '@/components/common/status-chips'
+import { shipmentStatusText, shipmentTerminalState } from '@/components/common/workflow-status'
+
+import { OrderProgressTimeline } from '@/features/customer/orders/components/order-progress-timeline'
+import { ShipmentTimeline } from '@/components/common/shipment-timeline'
+import { groupOrderByVendor } from '@/features/customer/orders/components/group-order-by-vendor'
+import { PayNowButton } from '@/features/customer/orders/components/pay-now-button'
 import { Button } from '@/components/ui/button'
-import { formatINR, formatDateTime } from '@/utils'
-import { cn } from '@/utils'
+import { cn, formatINR, formatDateTime } from '@/utils'
+
+/** Newest parcel for the order — the one the customer is most likely tracking. */
+function leadShipment(shipments: Shipment[] | undefined): Shipment | undefined {
+  if (!shipments?.length) return undefined
+  return [...shipments].sort(
+    (a, b) => +new Date(b.createdAt ?? b.dispatchDate ?? 0) - +new Date(a.createdAt ?? a.dispatchDate ?? 0),
+  )[0]
+}
+
+/**
+ * The courier's tracking endpoint answers for one AWB at a time, so the live
+ * response is folded onto that single parcel and the rest keep the persisted
+ * status the shipment API returned.
+ */
+function withLiveTracking(shipment: Shipment, live?: TrackingResponse | null): Shipment {
+  if (!live?.shipment || live.shipment.id !== shipment._id) return shipment
+  return {
+    ...shipment,
+    ...live.shipment,
+    orderId: shipment.orderId,
+    vendorId: shipment.vendorId,
+    courier: live.shipment.courier,
+    awbNumber: live.awbNumber ?? shipment.awbNumber,
+    trackingEvents: live.shipment.trackingEvents ?? shipment.trackingEvents ?? [],
+    pickupDate: shipment.pickupDate,
+    dispatchDate: shipment.dispatchDate,
+    estimatedDeliveryDate: live.estimatedDeliveryDate ?? shipment.estimatedDeliveryDate,
+    createdAt: shipment.createdAt,
+    updatedAt: shipment.updatedAt,
+  }
+}
 
 export function TrackOrderPage() {
   const { id } = useParams()
   const session = useAuthStore((s) => s.session)
-  const order = id ? orderById(id) : undefined
+  const { data: order, isLoading } = useOrder(id)
+  const { data: shipments, isFetching } = useOrderShipments(order?._id)
+
+  const lead = leadShipment(shipments)
+  const awb = lead?.awbNumber ?? lead?.trackingNumber ?? null
+  const { data: live, isFetching: isTracking } = useTrackShipment(awb)
+
+  // Live courier status wins for the tracked parcel; siblings stay as persisted.
+  const parcels = useMemo(
+    () => (shipments ?? []).map((s) => (s._id === lead?._id ? withLiveTracking(s, live) : s)),
+    [shipments, lead?._id, live],
+  )
+
+  const groups = useMemo(
+    () => (order ? groupOrderByVendor(order, parcels) : []),
+    [order, parcels],
+  )
 
   if (!session) return <Navigate to="/shop/login?redirect=/shop/orders/mine" replace />
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-24 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" /> Loading tracking…
+      </div>
+    )
+  }
 
   if (!order) {
     return (
@@ -28,95 +89,135 @@ export function TrackOrderPage() {
     )
   }
 
-  const cancelled = order.status === 'cancelled'
-  const activeIndex = cancelled ? -1 : order.trackSteps.map((s) => s.done).lastIndexOf(true)
-  const firstProduct = storeProductById(order.items[0]?.productId ?? '')
+  const cancelled = order.orderStatus === 'cancelled'
+  const eta = parcels.map((s) => s.estimatedDeliveryDate).filter(Boolean).sort()[0] ?? null
+  const addr = order.shippingAddress
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-10">
       <Link to="/shop/orders/mine" className="text-sm font-medium text-primary hover:underline">← My orders</Link>
       <div className="mt-1 flex flex-wrap items-center gap-3">
         <h1 className="font-serif text-3xl font-bold tracking-tight text-foreground">Track order</h1>
-        <StoreOrderStatusBadge status={order.status} />
+        <OrderStatusChip status={order.orderStatus} />
+        <PaymentStatusChip status={order.paymentStatus} />
       </div>
-      <p className="mt-1 text-sm text-muted-foreground">{order.orderNumber} · placed {formatDateTime(order.placedAt)}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{order.orderNumber} · placed {formatDateTime(order.createdAt)}</p>
+
+      {!cancelled && order.paymentStatus !== 'confirmed' && (
+        <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Payment not confirmed — this order will not ship until it is paid.
+        </p>
+      )}
 
       <div className="mt-6 grid gap-5 sm:grid-cols-[1fr_240px]">
-        <section className="rounded-3xl border border-border bg-card p-5 sm:p-6">
-          {cancelled ? (
-            <div className="py-8 text-center">
-              <p className="font-serif text-lg font-semibold text-foreground">This order was cancelled</p>
-              <p className="mt-1 text-sm text-muted-foreground">Your payment of {formatINR(order.total)} will be refunded within 5–7 business days.</p>
-            </div>
-          ) : (
-            <ol className="relative space-y-7">
-              {order.trackSteps.map((step, i) => {
-                const isCurrent = !cancelled && i === activeIndex
-                return (
-                  <li key={i} className="relative flex gap-4">
-                    {i < order.trackSteps.length - 1 && (
-                      <span
-                        className={cn(
-                          'absolute left-[13px] top-8 h-[calc(100%-8px)] w-0.5 rounded',
-                          i <= activeIndex ? 'bg-emerald-500' : 'bg-border',
-                        )}
-                      />
-                    )}
-                    <span
-                      className={cn(
-                        'z-10 flex size-7 shrink-0 items-center justify-center rounded-full border-2',
-                        step.done ? 'border-emerald-500 bg-emerald-500 text-emerald-50' : 'border-border bg-card',
+        <div className="space-y-5">
+          <section className="rounded-3xl border border-border bg-card p-5 sm:p-6">
+            <p className="font-serif text-lg font-bold text-foreground">Order progress</p>
+            <OrderProgressTimeline order={order} className="mt-4" />
+
+            {cancelled ? (
+              <p className="mt-5 rounded-2xl bg-muted px-3 py-2.5 text-sm text-muted-foreground">
+                This order was cancelled. Any amount paid will be refunded within 5–7 business days.
+              </p>
+            ) : parcels.length === 0 ? (
+              <p className="mt-5 rounded-2xl bg-muted px-3 py-2.5 text-sm text-muted-foreground">
+                {isFetching || isTracking
+                  ? 'Checking for a courier booking…'
+                  : 'No shipment yet. A courier will be assigned once the vendor dispatches your order.'}
+              </p>
+            ) : (
+              <div className="mt-6 space-y-6 border-t border-border pt-5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {groups.length > 1 ? `Delivery progress · ${parcels.length} parcels` : 'Delivery progress'}
+                </p>
+                {groups.map((group) => (
+                  <div key={group.vendorId || 'unknown'}>
+                    <p className="text-sm font-semibold text-foreground">
+                      {group.vendorName}
+                      {group.shipments.length > 1 && (
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">
+                          {group.shipments.length} parcels
+                        </span>
                       )}
-                    >
-                      {isCurrent ? (
-                        <Loader2 className="size-3.5 animate-spin text-primary" />
-                      ) : step.done ? (
-                        <Check className="size-3.5" />
-                      ) : (
-                        <CircleDot className="size-3.5 text-muted-foreground" />
-                      )}
-                    </span>
-                    <div className="pt-0.5">
-                      <p className={cn('text-sm font-semibold', step.done ? 'text-foreground' : 'text-muted-foreground')}>
-                        {step.label}
-                        {isCurrent && <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">LIVE</span>}
+                    </p>
+                    {group.shipments.length === 0 ? (
+                      <p className="mt-1.5 text-xs text-muted-foreground">
+                        This vendor has not created a shipment yet.
                       </p>
-                      {step.at && <p className="mt-0.5 text-[11px] font-medium text-primary">{step.at}</p>}
-                    </div>
-                  </li>
-                )
-              })}
-            </ol>
+                    ) : (
+                      group.shipments.map((shipment) => (
+                        <ShipmentTimeline
+                          key={shipment._id}
+                          shipment={shipment}
+                          className="mt-3"
+                        />
+                      ))
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {lead && lead.trackingEvents?.length > 0 && (
+            <section className="rounded-3xl border border-border bg-card p-5 sm:p-6">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Courier events</p>
+              <ul className="mt-3 space-y-2.5">
+                {[...lead.trackingEvents]
+                  .sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp))
+                  .map((event, i) => (
+                    <li key={`${event.status}-${i}`} className="text-xs">
+                      <p className="font-semibold text-foreground">{event.description}</p>
+                      <p className="text-muted-foreground">
+                        {event.location ? `${event.location} · ` : ''}
+                        {formatDateTime(event.timestamp)}
+                      </p>
+                    </li>
+                  ))}
+              </ul>
+            </section>
           )}
-        </section>
+        </div>
 
         <aside className="h-fit space-y-4">
           <div className="rounded-3xl border border-border bg-card p-4">
-            <div className="flex items-center gap-3">
-              <ProductArt hue={firstProduct?.hue ?? 336} pattern={firstProduct?.pattern ?? 1} label={order.items[0]?.name ?? 'Order'} className="size-12 shrink-0 rounded-xl" />
-              <div className="min-w-0">
-                <p className="line-clamp-1 text-sm font-semibold text-foreground">{order.items[0]?.name}</p>
-                <p className="text-[11px] text-muted-foreground">{order.items.reduce((n, i) => n + i.quantity, 0)} pc(s)</p>
-              </div>
+            <div className="min-w-0">
+              <p className="line-clamp-1 text-sm font-semibold text-foreground">{order.items[0]?.productName}</p>
+              <p className="text-[11px] text-muted-foreground">{orderItemCount(order)} pc(s)</p>
             </div>
-            <SeparatorMini />
+            <hr className="my-3 border-border" />
             <dl className="space-y-2 text-xs">
-              <Row title="Carrier" value={order.carrier} />
-              <Row title="AWB no." value={order.trackingNumber || '—'} mono />
-              <Row title="ETA" value={order.estDelivery} />
-              <Row title="Deliver to" value={`${order.addressCity} ${order.addressPin}`} />
+              <Row title="Parcels" value={String(parcels.length)} />
+              <Row title="Courier" value={lead?.courier ?? '—'} />
+              <Row title="AWB no." value={lead?.awbNumber ?? '—'} mono />
+              <Row title="Tracking no." value={lead?.trackingNumber ?? '—'} mono />
+              <Row
+                title="Current status"
+                value={lead ? shipmentStatusText(shipmentMilestone(lead)) : '—'}
+              />
+              <Row title="Expected" value={eta ? formatDateTime(eta as string) : '—'} />
+              <Row title="Shipping" value={formatINR(order.shippingAmount)} />
+              <Row title="Deliver to" value={`${addr?.city ?? ''} ${addr?.pincode ?? ''}`} />
             </dl>
+          {lead && shipmentTerminalState(shipmentMilestone(lead)) && (
+            <p className="rounded-2xl bg-muted px-3 py-2.5 text-xs text-muted-foreground">
+              {shipmentTerminalState(shipmentMilestone(lead))?.description}
+            </p>
+          )}
+
           </div>
 
           {!cancelled && (
             <div className="flex items-start gap-3 rounded-3xl border border-border bg-card p-4 text-sm">
               <MapPin className="mt-0.5 size-4 shrink-0 text-primary" />
-              <p className="text-muted-foreground">Delivering to <span className="font-semibold text-foreground">{order.addressCity}</span></p>
+              <p className="text-muted-foreground">Delivering to <span className="font-semibold text-foreground">{addr?.city}</span></p>
             </div>
           )}
 
+          <PayNowButton order={order} className="w-full rounded-2xl" />
+
           <Button asChild variant="outline" className="w-full rounded-2xl">
-            <Link to={`/shop/orders/${encodeURIComponent(order.id)}`}>
+            <Link to={`/shop/orders/${encodeURIComponent(order._id)}`}>
               <Truck className="size-4" /> Order details
             </Link>
           </Button>
@@ -124,10 +225,6 @@ export function TrackOrderPage() {
       </div>
     </div>
   )
-}
-
-function SeparatorMini() {
-  return <hr className="my-3 border-border" />
 }
 
 function Row({ title, value, mono }: { title: string; value: string; mono?: boolean }) {

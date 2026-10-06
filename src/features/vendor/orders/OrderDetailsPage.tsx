@@ -1,8 +1,12 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, MapPin, ReceiptText } from 'lucide-react'
+import { ArrowLeft, MapPin, PackagePlus, ReceiptText } from 'lucide-react'
 import { toast } from 'sonner'
-import { useVendorOrder, useVendorOrders, useUpdateVendorOrderStatus } from '@/features/vendor/hooks'
+import { useOrderShipmentsForVendor, useVendorOrder, useVendorOrders, useUpdateVendorOrderStatus } from '@/features/vendor/hooks'
+import { CreateShipmentDialog } from '@/features/vendor/shipping/components/create-shipment-dialog'
+import { RequestPickupDialog } from '@/features/vendor/shipping/components/request-pickup-dialog'
+import { ShipmentStatusDialog } from '@/features/vendor/shipping/components/shipment-status-dialog'
+import { ShipmentStatusChip } from '@/components/common/status-chips'
 import { PageHeader } from '@/layouts/PageHeader'
 import { Button } from '@/components/ui/button'
 import { ProductThumb } from '@/components/common/artwork'
@@ -34,6 +38,23 @@ export function VendorOrderDetailsPage() {
   const { data: order, isLoading } = useVendorOrder(id)
   const { data: orders } = useVendorOrders()
   const updateStatus = useUpdateVendorOrderStatus()
+  // The shipment API wants the vendor that owns the order's items, which is a
+  // different id from the signed-in user's — so take it from the line items.
+  const vendorId = order?.items.find((i) => i.vendorId)?.vendorId
+  const { data: shipments } = useOrderShipmentsForVendor(id)
+  const [showCreate, setShowCreate] = useState(false)
+  const [showPickup, setShowPickup] = useState(false)
+  const [pickupDate, setPickupDate] = useState('')
+  const [showShipStatus, setShowShipStatus] = useState(false)
+
+  // Default pickup date is tomorrow; computed on click to keep render pure.
+  const openPickup = () => {
+    setPickupDate(new Date(Date.now() + 86400000).toISOString().slice(0, 10))
+    setShowPickup(true)
+  }
+
+  const shipment = shipments?.[0]
+  const cancellable = order?.status !== 'cancelled' && order?.status !== 'delivered'
 
   const next = order ? NEXT_STATUS[order.status] ?? [] : []
 
@@ -98,6 +119,11 @@ export function VendorOrderDetailsPage() {
         actions={
           <div className="flex items-center gap-2">
             <OrderStatusBadge status={order.status} />
+            {!shipment && cancellable && (
+              <Button size="sm" className="rounded-full" onClick={() => setShowCreate(true)}>
+                <PackagePlus className="size-4" /> Dispatch
+              </Button>
+            )}
             {next.length > 0 && (
               <Select onValueChange={changeStatus} value="__current">
                 <SelectTrigger className="w-48">
@@ -116,6 +142,44 @@ export function VendorOrderDetailsPage() {
           </div>
         }
       />
+
+      {shipment && (
+        <Card>
+          <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+            <div>
+              <CardTitle>Shipment</CardTitle>
+              <CardDescription>
+                {shipment.courier} · {shipment.awbNumber ?? 'no AWB yet'}
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <ShipmentStatusChip status={shipment.shipmentStatus} />
+              <Button size="sm" variant="outline" className="rounded-full" onClick={openPickup}>
+                Request pickup
+              </Button>
+              <Button size="sm" variant="outline" className="rounded-full" onClick={() => setShowShipStatus(true)}>
+                Update status
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid gap-3 text-sm sm:grid-cols-3">
+              <div>
+                <dt className="text-xs text-muted-foreground">AWB number</dt>
+                <dd className="font-mono font-medium">{shipment.awbNumber ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Estimated delivery</dt>
+                <dd className="font-medium">{formatDateTime(shipment.estimatedDeliveryDate)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Tracking events</dt>
+                <dd className="font-medium">{shipment.trackingEvents?.length ?? 0}</dd>
+              </div>
+            </dl>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -207,6 +271,24 @@ export function VendorOrderDetailsPage() {
           )}
         </div>
       </div>
+
+      <CreateShipmentDialog open={showCreate} orderId={id} vendorId={vendorId} onClose={() => setShowCreate(false)} />
+      {shipment && (
+        <>
+          <RequestPickupDialog
+            open={showPickup}
+            shipmentId={shipment._id}
+            defaultPickupDate={pickupDate}
+            onClose={() => setShowPickup(false)}
+          />
+          <ShipmentStatusDialog
+            open={showShipStatus}
+            shipmentId={shipment._id}
+            currentStatus={shipment.shipmentStatus}
+            onClose={() => setShowShipStatus(false)}
+          />
+        </>
+      )}
     </div>
   )
 }

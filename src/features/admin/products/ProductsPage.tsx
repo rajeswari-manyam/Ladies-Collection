@@ -1,10 +1,18 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { MoreHorizontal, Pencil, Plus, Star, Trash2 } from 'lucide-react'
+import { Ban, BadgeCheck, MoreHorizontal, Pencil, Plus, Save, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { useCategories, useProducts, useVendors, useAddProduct } from '@/features/admin/hooks'
+import {
+  useProductApprovals,
+  useUpdateProductStatus,
+  useUpdateAdminProduct,
+  useDeleteAdminProduct,
+  useApproveProduct,
+  useRejectProduct,
+} from '@/features/admin/hooks'
+import { productRefName } from '@/services/product.service'
 import { PageHeader } from '@/layouts/PageHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -34,73 +42,141 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { DataTable, type AppColumnDef } from '@/components/ui/data-table'
-import { ProductStatusBadge } from '@/components/common/status-badge'
 import { ProductThumb } from '@/components/common/artwork'
 import { ErrorState } from '@/components/common/state'
-import { formatCurrency } from '@/utils'
-import type { Product } from '@/features/admin/types'
+import type { ApiProduct } from '@/services/product.service'
 
-const productSchema = z.object({
-  name: z.string().min(3, 'Name must be at least 3 characters'),
-  description: z.string().min(10, 'Add a short description'),
-  vendorId: z.string().min(1, 'Select a vendor'),
-  categoryId: z.string().min(1, 'Select a category'),
-  subcategoryId: z.string().min(1, 'Select a subcategory'),
-  color: z.string().min(1, 'Add a color'),
-  price: z.coerce.number().positive('Price must be positive'),
-  compareAtPrice: z.coerce.number().positive().optional().or(z.literal('')),
-  stock: z.coerce.number().min(0).int(),
-  brand: z.string().min(1, 'Select a brand'),
-  featured: z.boolean().default(false),
-  tags: z.array(z.string()).default([]),
-})
+const approvalTabs = [
+  { value: 'all', label: 'All approvals' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
+]
 
-type ProductFormValues = z.infer<typeof productSchema>
+function ApprovalStatusBadge({ status }: { status: string }) {
+  const tone =
+    status === 'approved' ? 'success' : status === 'rejected' ? 'destructive' : 'warning'
+  return (
+    <Badge variant={tone} className="capitalize">
+      {status}
+    </Badge>
+  )
+}
+
+interface SpecRow {
+  key: string
+  value: string
+}
+
+function parseImages(raw: string): string[] {
+  return raw
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
 
 export function ProductsPage() {
-  const { data: products, isLoading, isError, refetch } = useProducts()
-  const { data: categories } = useCategories()
-  const { data: vendors } = useVendors()
-  const addProduct = useAddProduct()
+  const { data: products, isLoading, isError, refetch } = useProductApprovals()
+  const updateStatus = useUpdateProductStatus()
+  const updateProduct = useUpdateAdminProduct()
+  const remove = useDeleteAdminProduct()
+  const approve = useApproveProduct()
+  const reject = useRejectProduct()
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const [approvalFilter, setApprovalFilter] = useState('all')
+  const [editing, setEditing] = useState<ApiProduct | null>(null)
+  const [deleting, setDeleting] = useState<ApiProduct | null>(null)
+  const [rejecting, setRejecting] = useState<ApiProduct | null>(null)
 
-  const categoryName = useMemo(() => {
-    const map = new Map(categories?.categories.map((c) => [c.id, c.name]))
-    return (id: string) => map.get(id) ?? '—'
-  }, [categories])
-
-  const vendorName = useMemo(() => {
-    const map = new Map(vendors?.map((v) => [v.id, v.brand]))
-    return (id: string) => map.get(id) ?? '—'
-  }, [vendors])
+  const categoryNames = useMemo(() => {
+    const map = new Map<string, string>()
+    ;(products ?? []).forEach((p) => {
+      const id = typeof p.categoryId === 'string' ? p.categoryId : p.categoryId?._id
+      const name = productRefName(p.categoryId)
+      if (id && name) map.set(id, name)
+    })
+    return map
+  }, [products])
 
   const filtered = useMemo(() => {
     let rows = products ?? []
-    if (categoryFilter !== 'all') rows = rows.filter((p) => p.categoryId === categoryFilter)
-    if (statusFilter !== 'all') rows = rows.filter((p) => p.status === statusFilter)
+    if (categoryFilter !== 'all') {
+      rows = rows.filter((p) => {
+        const id = typeof p.categoryId === 'string' ? p.categoryId : p.categoryId?._id
+        return id === categoryFilter
+      })
+    }
+    if (approvalFilter !== 'all') rows = rows.filter((p) => p.approvalStatus === approvalFilter)
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       rows = rows.filter(
-        (p) => p.name.toLowerCase().includes(q) || p.brand.toLowerCase().includes(q) || p.tags.some((t) => t.includes(q)),
+        (p) => p.name.toLowerCase().includes(q) || (p.brand ?? '').toLowerCase().includes(q),
       )
     }
     return rows
-  }, [products, categoryFilter, statusFilter, search])
+  }, [products, categoryFilter, approvalFilter, search])
 
-  const columns = useMemo<AppColumnDef<Product>[]>(
+  const changeStatus = useCallback(
+    (id: string, status: string) => {
+      updateStatus.mutate(
+        { id, status },
+        {
+          onSuccess: () => toast.success('Listing updated', { description: `Product moved to ${status}.` }),
+          onError: () => toast.error('Update failed — please retry'),
+        },
+      )
+    },
+    [updateStatus],
+  )
+
+  const confirmDelete = () => {
+    if (!deleting) return
+    remove.mutate(deleting._id, {
+      onSuccess: () => {
+        toast.success('Product deleted', { description: `${deleting.name} was removed from the catalog.` })
+        setDeleting(null)
+      },
+      onError: () => toast.error('Delete failed — please retry'),
+    })
+  }
+
+  const approveProduct = useCallback(
+    (product: ApiProduct) => {
+      approve.mutate(product._id, {
+        onSuccess: () =>
+          toast.success('Product approved', { description: `${product.name} is now live in the catalog.` }),
+        onError: (err) => toast.error(err instanceof Error ? err.message : 'Approval failed — please retry'),
+      })
+    },
+    [approve],
+  )
+
+  const confirmReject = () => {
+    if (!rejecting) return
+    reject.mutate(
+      { id: rejecting._id, reason: 'Brand guidelines not met.' },
+      {
+        onSuccess: () => {
+          toast.success('Product rejected', { description: `${rejecting.name} was sent back to the vendor.` })
+          setRejecting(null)
+        },
+        onError: (err) => toast.error(err instanceof Error ? err.message : 'Rejection failed — please retry'),
+      },
+    )
+  }
+
+  const columns = useMemo<AppColumnDef<ApiProduct>[]>(
     () => [
       {
         accessorKey: 'name',
         header: 'Product',
         cell: ({ row }) => (
           <div className="flex items-center gap-3">
-            <ProductThumb seed={row.original.name} color={row.original.color} />
+            <ProductThumb seed={row.original.name} color={row.original.brand} />
             <div className="min-w-0">
               <p className="max-w-56 truncate font-medium">{row.original.name}</p>
-              <p className="text-xs text-muted-foreground">by {row.original.brand}</p>
+              <p className="text-xs text-muted-foreground">by {row.original.brand || '—'}</p>
             </div>
           </div>
         ),
@@ -108,82 +184,100 @@ export function ProductsPage() {
       {
         accessorKey: 'categoryId',
         header: 'Category',
-        cell: ({ row }) => <span className="text-muted-foreground">{categoryName(row.original.categoryId)}</span>,
+        cell: ({ row }) => <span className="text-muted-foreground">{productRefName(row.original.categoryId) || '—'}</span>,
       },
       {
         accessorKey: 'vendorId',
         header: 'Vendor',
-        cell: ({ row }) => <span className="text-muted-foreground">{vendorName(row.original.vendorId)}</span>,
+        cell: ({ row }) => <span className="text-muted-foreground">{productRefName(row.original.vendorId) || '—'}</span>,
       },
       {
-        accessorKey: 'price',
-        header: 'Price',
-        cell: ({ row }) => (
-          <div>
-            <span className="font-medium">{formatCurrency(row.original.price)}</span>
-            {row.original.compareAtPrice && (
-              <span className="ml-1.5 text-xs text-muted-foreground line-through">
-                {formatCurrency(row.original.compareAtPrice)}
-              </span>
-            )}
-          </div>
-        ),
-      },
-      {
-        accessorKey: 'stock',
-        header: 'Stock',
-        cell: ({ row }) => (
-          <Badge variant={row.original.stock === 0 ? 'destructive' : row.original.stock < 40 ? 'warning' : 'success'}>
-            {row.original.stock} units
-          </Badge>
-        ),
-      },
-      {
-        accessorKey: 'rating',
-        header: 'Rating',
-        cell: ({ row }) => (
-          <span className="inline-flex items-center gap-1 text-muted-foreground">
-            <Star className="size-3.5 fill-amber-400 text-amber-400" />
-            {row.original.rating.toFixed(1)}
-            <span className="text-xs">({row.original.reviews})</span>
-          </span>
-        ),
+        accessorKey: 'approvalStatus',
+        header: 'Approval',
+        cell: ({ row }) => <ApprovalStatusBadge status={row.original.approvalStatus} />,
       },
       {
         accessorKey: 'status',
-        header: 'Status',
-        cell: ({ row }) => <ProductStatusBadge status={row.original.status} />,
+        header: 'Listing',
+        cell: ({ row }) => (
+          <Badge variant={row.original.status === 'active' ? 'success' : 'neutral'} className="capitalize">
+            {row.original.status || 'inactive'}
+          </Badge>
+        ),
       },
       {
         id: 'actions',
         header: () => <span className="sr-only">Actions</span>,
         cell: ({ row }) => (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm">
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => toast.info(`Opened edit view for ${row.original.name}`)}>
-                <Pencil />
-                Edit product
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => toast.info(`Opened inventory for ${row.original.name}`)}>
-                <Star />
-                Manage variants
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onClick={() => toast.error('Cannot delete — demo mode')}>
-                <Trash2 />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center justify-end gap-1.5">
+            {row.original.approvalStatus === 'pending' && (
+              <>
+                <Button
+                  size="sm"
+                  variant="soft"
+                  disabled={approve.isPending}
+                  onClick={() => approveProduct(row.original)}
+                >
+                  <BadgeCheck className="size-4" />
+                  Approve
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={reject.isPending}
+                  onClick={() => setRejecting(row.original)}
+                >
+                  <Ban className="size-4" />
+                  Reject
+                </Button>
+              </>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm">
+                  <MoreHorizontal className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {row.original.approvalStatus === 'pending' && (
+                  <>
+                    <DropdownMenuItem onClick={() => approveProduct(row.original)}>
+                      <BadgeCheck />
+                      Approve product
+                    </DropdownMenuItem>
+                    <DropdownMenuItem variant="destructive" onClick={() => setRejecting(row.original)}>
+                      <Ban />
+                      Reject product
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                <DropdownMenuItem onClick={() => setEditing(row.original)}>
+                  <Pencil />
+                  Edit product
+                </DropdownMenuItem>
+                {row.original.status !== 'active' && (
+                  <DropdownMenuItem onClick={() => changeStatus(row.original._id, 'active')}>
+                    Set active
+                  </DropdownMenuItem>
+                )}
+                {row.original.status === 'active' && (
+                  <DropdownMenuItem onClick={() => changeStatus(row.original._id, 'inactive')}>
+                    Inactivate
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={() => setDeleting(row.original)}>
+                  <Trash2 />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         ),
       },
     ],
-    [categoryName, vendorName],
+    [approve.isPending, approveProduct, changeStatus, reject.isPending],
   )
 
   if (isError) {
@@ -200,12 +294,6 @@ export function ProductsPage() {
         eyebrow="Catalog"
         title="Products"
         description="Browse and manage every listing across all marketplace vendors."
-        actions={
-          <Button size="sm" onClick={() => setDialogOpen(true)}>
-            <Plus className="size-4" />
-            Add product
-          </Button>
-        }
       />
 
       <DataTable
@@ -218,7 +306,7 @@ export function ProductsPage() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center lg:max-w-xl">
               <Input
-                placeholder="Search products, brands or tags…"
+                placeholder="Search products or brands…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="max-w-full"
@@ -230,23 +318,23 @@ export function ProductsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All categories</SelectItem>
-                    {categories?.categories.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
+                    {Array.from(categoryNames.entries()).map(([id, name]) => (
+                      <SelectItem key={id} value={id}>
+                        {name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <Select value={approvalFilter} onValueChange={setApprovalFilter}>
                   <SelectTrigger className="w-full sm:w-36">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All statuses</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="draft">Draft</SelectItem>
-                    <SelectItem value="out-of-stock">Out of stock</SelectItem>
-                    <SelectItem value="archived">Archived</SelectItem>
+                    {approvalTabs.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -256,181 +344,206 @@ export function ProductsPage() {
         }
       />
 
-      <AddProductDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        ship={{
-          categories: categories?.categories ?? [],
-          subcategories: categories?.subcategories ?? [],
-          vendors: vendors ?? [],
-          loading: addProduct.isPending,
-          submit: async (values) => {
-            await addProduct.mutateAsync({
-              ...values,
-              featured: values.featured,
-              tags: values.tags,
-              compareAtPrice: values.compareAtPrice ? Number(values.compareAtPrice) : null,
-            })
-            toast.success('Product published', { description: `${values.name} has been added to the catalog.` })
-            setDialogOpen(false)
-          },
-        }}
+      <EditProductDialog
+        product={editing}
+        open={editing !== null}
+        onOpenChange={(open) => !open && setEditing(null)}
+        submit={(patch) =>
+          editing
+            ? updateProduct.mutate(
+                { id: editing._id, patch },
+                {
+                  onSuccess: () => {
+                    toast.success('Product updated', { description: `${editing.name} was saved.` })
+                    setEditing(null)
+                  },
+                  onError: () => toast.error('Save failed — please retry'),
+                },
+              )
+            : undefined
+        }
+        pending={updateProduct.isPending}
       />
+
+      <Dialog open={rejecting !== null} onOpenChange={(open) => !open && setRejecting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject {rejecting?.name ?? 'product'}?</DialogTitle>
+            <DialogDescription>
+              The listing goes back to the vendor as rejected and stays hidden from the storefront.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejecting(null)} disabled={reject.isPending}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmReject} disabled={reject.isPending}>
+              <Ban className="size-4" />
+              {reject.isPending ? 'Rejecting…' : 'Reject product'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {deleting?.name ?? 'product'}?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the listing from the catalog. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleting(null)} disabled={remove.isPending}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={remove.isPending}>
+              <Trash2 className="size-4" />
+              {remove.isPending ? 'Deleting…' : 'Delete product'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
-interface AddProductDialogProps {
+interface EditProductDialogProps {
+  product: ApiProduct | null
   open: boolean
   onOpenChange: (open: boolean) => void
-  ship: {
-    categories: { id: string; name: string }[]
-    subcategories: { id: string; categoryId: string; name: string }[]
-    vendors: { id: string; brand: string }[]
-    loading: boolean
-    submit: (values: ProductFormValues) => Promise<void>
-  }
+  submit: (patch: {
+    name: string
+    description: string
+    images?: string[]
+    specifications?: Record<string, string>
+  }) => unknown
+  pending: boolean
 }
 
-function AddProductDialog({ open, onOpenChange, ship }: AddProductDialogProps) {
+const editFormSchema = z.object({
+  name: z.string().min(3, 'Name must be at least 3 characters'),
+  description: z.string().min(10, 'Add a short description'),
+  images: z.string().optional(),
+})
+
+type EditFormValues = z.infer<typeof editFormSchema>
+
+function EditProductDialog({ product, open, onOpenChange, submit, pending }: EditProductDialogProps) {
   const {
     register,
     handleSubmit,
-    watch,
-    setValue,
     reset,
     formState: { errors },
-  } = useForm<ProductFormValues>({
-    resolver: zodResolver(productSchema) as Resolver<ProductFormValues, any, any>,
-    defaultValues: {
-      name: '',
-      description: '',
-      vendorId: '',
-      categoryId: '',
-      subcategoryId: '',
-      color: '',
-      price: 0,
-      compareAtPrice: '',
-      stock: 0,
-      brand: '',
-      featured: false,
-      tags: [],
-    },
+  } = useForm<EditFormValues>({
+    resolver: zodResolver(editFormSchema) as unknown as Resolver<EditFormValues>,
+    defaultValues: { name: '', description: '', images: '' },
   })
 
-  const categoryId = watch('categoryId')
-  const subcategories = ship.subcategories.filter((s) => s.categoryId === categoryId)
+  const [specs, setSpecs] = useState<SpecRow[]>([])
+
+  const openWith = (item: ApiProduct) => {
+    reset({
+      name: item.name,
+      description: item.description,
+      images: Array.isArray(item.images) ? item.images.join('\n') : '',
+    })
+    const entries = Object.entries(item.specifications ?? {})
+    setSpecs(entries.length ? entries.map(([key, value]) => ({ key, value })) : [{ key: '', value: '' }])
+  }
 
   return (
     <Dialog
       open={open}
       onOpenChange={(value) => {
-        if (!value) reset()
-        onOpenChange(value)
+        if (!value) {
+          onOpenChange(false)
+          return
+        }
+        if (product) openWith(product)
+        onOpenChange(true)
       }}
     >
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add a product</DialogTitle>
-          <DialogDescription>
-            Publish a new listing to the catalog. Variants can be configured afterwards from inventory.
-          </DialogDescription>
+          <DialogTitle>Edit {product?.name}</DialogTitle>
+          <DialogDescription>Update listing details that vendors submitted.</DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-4"
-          onSubmit={handleSubmit((values) =>
-            ship.submit(values).catch(() => toast.error('Could not publish product — please retry')),
-          )}
+          onSubmit={handleSubmit((values) => {
+            void submit({
+              name: values.name,
+              description: values.description,
+              images: parseImages(values.images ?? ''),
+              specifications: specs.filter((s) => s.key.trim()).reduce<Record<string, string>>((acc, s) => {
+                acc[s.key.trim()] = s.value.trim()
+                return acc
+              }, {}),
+            })
+          })}
         >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="name">Product name</Label>
-              <Input id="name" placeholder="e.g. Rosette Silk Slip Dress" {...register('name')} />
-              {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="description">Short description</Label>
-              <Textarea id="description" placeholder="Describe the fabric, fit and occasion…" {...register('description')} />
-              {errors.description && <p className="text-xs text-destructive">{errors.description.message}</p>}
-            </div>
-            <div className="space-y-1.5">
-              <Label>Vendor</Label>
-              <Select
-                value={watch('vendorId')}
-                onValueChange={(v) => {
-                  register('vendorId').onChange({ target: { value: v } })
-                  const vendor = ship.vendors.find((x) => x.id === v)
-                  if (vendor) setValue('brand', vendor.brand)
-                }}
-              >
-                <SelectTrigger><SelectValue placeholder="Select vendor" /></SelectTrigger>
-                <SelectContent>
-                  {ship.vendors.map((v) => (
-                    <SelectItem key={v.id} value={v.id}>{v.brand}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.vendorId && <p className="text-xs text-destructive">{errors.vendorId.message}</p>}
-            </div>
-            <div className="space-y-1.5">
-              <Label>Color</Label>
-              <Input placeholder="e.g. Blush Rose" {...register('color')} />
-              {errors.color && <p className="text-xs text-destructive">{errors.color.message}</p>}
-            </div>
-            <div className="space-y-1.5">
-              <Label>Category</Label>
-              <Select
-                value={watch('categoryId')}
-                onValueChange={(v) => register('categoryId').onChange({ target: { value: v } })}
-              >
-                <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                <SelectContent>
-                  {ship.categories.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.categoryId && <p className="text-xs text-destructive">{errors.categoryId.message}</p>}
-            </div>
-            <div className="space-y-1.5">
-              <Label>Subcategory</Label>
-              <Select
-                value={watch('subcategoryId')}
-                onValueChange={(v) => register('subcategoryId').onChange({ target: { value: v } })}
-              >
-                <SelectTrigger><SelectValue placeholder="Select subcategory" /></SelectTrigger>
-                <SelectContent>
-                  {subcategories.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.subcategoryId && <p className="text-xs text-destructive">{errors.subcategoryId.message}</p>}
-            </div>
-            <div className="grid gap-4 sm:col-span-2 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="price">Price (₹)</Label>
-                <Input id="price" type="number" step="0.01" placeholder="0.00" {...register('price')} />
-                {errors.price && <p className="text-xs text-destructive">{errors.price.message}</p>}
+          <div className="space-y-1.5">
+            <Label htmlFor="name">Product name</Label>
+            <Input id="name" placeholder="e.g. Rosewater Anarkali Gown" {...register('name')} />
+            {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="description">Short description</Label>
+            <Textarea id="description" placeholder="Describe the fabric, fit and occasion…" {...register('description')} />
+            {errors.description && <p className="text-xs text-destructive">{errors.description.message}</p>}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="images">Image URLs</Label>
+            <Textarea
+              id="images"
+              rows={3}
+              placeholder="One URL per line"
+              {...register('images')}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Specifications</Label>
+            {specs.map((spec, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  placeholder="Key (e.g. fabric)"
+                  value={spec.key}
+                  onChange={(e) => setSpecs((list) => list.map((s, j) => (j === i ? { ...s, key: e.target.value } : s)))}
+                />
+                <Input
+                  placeholder="Value (e.g. Pure Silk)"
+                  value={spec.value}
+                  onChange={(e) => setSpecs((list) => list.map((s, j) => (j === i ? { ...s, value: e.target.value } : s)))}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setSpecs((list) => list.filter((_, j) => j !== i))}
+                  aria-label="Remove specification"
+                >
+                  <X className="size-4" />
+                </Button>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="compareAt">Compare-at price</Label>
-                <Input id="compareAt" type="number" step="0.01" placeholder="optional" {...register('compareAtPrice')} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="stock">Stock units</Label>
-                <Input id="stock" type="number" {...register('stock')} />
-                {errors.stock && <p className="text-xs text-destructive">{errors.stock.message}</p>}
-              </div>
-            </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setSpecs((list) => [...list, { key: '', value: '' }])}
+            >
+              <Plus className="size-3.5" />
+              Add specification
+            </Button>
           </div>
           <DialogFooter className="gap-2 sm:justify-end">
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
               Cancel
             </Button>
-            <Button type="submit" disabled={ship.loading}>
-              <Plus className="size-4" />
-              {ship.loading ? 'Publishing…' : 'Publish product'}
+            <Button type="submit" disabled={pending}>
+              <Save className="size-4" />
+              {pending ? 'Saving…' : 'Save changes'}
             </Button>
           </DialogFooter>
         </form>

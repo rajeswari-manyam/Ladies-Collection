@@ -1,35 +1,54 @@
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, Sparkles, Truck } from 'lucide-react'
-import { storeProducts, homeBanners } from '@/features/customer/products/data/products'
-import { categories } from '@/features/admin/categories/data/categories'
+import { useCatalog, useLiveCategories } from '@/features/customer/hooks'
+import { hueFromHex } from '@/services/catalog.service'
 import { ProductArt } from '@/features/customer/products/components/product-art'
+import { ProductImage } from '@/features/customer/products/components/product-image'
 import { ProductGrid } from '@/features/customer/products/components/product-grid'
-import { RatingStars } from '@/features/customer/products/components/rating-stars'
 import { useAuthStore } from '@/store/appStore'
 import { formatINR } from '@/utils'
 import { Button } from '@/components/ui/button'
 
 export function StoreHomePage() {
   const session = useAuthStore((s) => s.session)
-  const hero = homeBanners[0]
-  const bestsellers = storeProducts.filter((p) => p.inBestsellers)
-  const newArrivals = storeProducts
-    .filter((p) => p.inNewArrivals)
-    .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
-    .slice(0, 4)
-  const heroProduct = storeProducts.find((p) => p.id === 'prd-502') ?? storeProducts[0]
+  const { data: catalog = [], isLoading } = useCatalog()
+  const { data: liveCategories = [] } = useLiveCategories()
+
+  const heroProduct = useMemo(() => catalog.find((p) => p.stock > 0) ?? catalog[0], [catalog])
+  const heroDiscount = Boolean(heroProduct && heroProduct.offPercent > 0 && heroProduct.discountAmount > 0)
+  const heroStrike = Boolean(heroProduct && heroDiscount && heroProduct.basePrice > heroProduct.price)
+  const bestsellers = useMemo(
+    () => [...catalog].sort((a, b) => b.stock - a.stock || +new Date(b.createdAt) - +new Date(a.createdAt)).slice(0, 8),
+    [catalog],
+  )
+  const newArrivals = useMemo(
+    () =>
+      [...catalog]
+        .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
+        .slice(0, 4),
+    [catalog],
+  )
+  const countByCategory = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const product of catalog) {
+      if (!product.categoryId) continue
+      counts.set(product.categoryId, (counts.get(product.categoryId) ?? 0) + 1)
+    }
+    return counts
+  }, [catalog])
 
   return (
     <div>
       <section
         className="relative overflow-hidden border-b border-border"
         style={{
-          background: `linear-gradient(115deg, hsl(${hero.hue} 58% 90%) 0%, hsl(${hero.hue} 60% 84%) 50%, hsl(${hero.hue + 30} 62% 78%) 100%)`,
+          background: 'linear-gradient(115deg, hsl(340 58% 90%) 0%, hsl(340 60% 84%) 50%, hsl(10 62% 78%) 100%)',
         }}
       >
         <div
           className="pointer-events-none absolute -right-20 -top-24 size-96 rounded-full opacity-30 blur-3xl"
-          style={{ background: `hsl(${hero.hue} 80% 70%)` }}
+          style={{ background: 'hsl(340 80% 70%)' }}
         />
         <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 py-12 sm:px-6 sm:py-16 lg:grid-cols-2 lg:px-10">
           <div className="relative z-10">
@@ -38,16 +57,16 @@ export function StoreHomePage() {
               Festive Edit · New Season
             </span>
             <h1 className="mt-5 font-serif text-4xl font-bold leading-[1.1] tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-              {hero.label.slice(0, 16)}
-              <span className="block text-primary">{'Ethereal ethnic wear'}</span>
+              Ethereal
+              <span className="block text-primary">ethnic wear</span>
             </h1>
             <p className="mt-4 max-w-md text-[15px] leading-relaxed text-foreground/70">
-              Handpicked sarees, kurtis, lehengas and more from six Indian craft houses — with sizes,
+              Handpicked sarees, kurtis, lehengas and more from Indian craft houses — with sizes,
               colours and prices that fit every occasion.
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-3">
               <Button asChild size="lg" className="rounded-full">
-                <Link to="/shop/collections?sort=bestselling">
+                <Link to="/shop/collections?collection=best">
                   Shop the collection
                   <ArrowRight className="size-4" />
                 </Link>
@@ -57,7 +76,7 @@ export function StoreHomePage() {
               </Button>
             </div>
             <div className="mt-8 flex items-center gap-6 text-sm text-foreground/70">
-              <span className="flex items-center gap-2"><RatingStars rating={heroProduct.rating} /> {heroProduct.rating} ({heroProduct.ratingCount})</span>
+              <span>{catalog.length} pieces live in the catalogue</span>
               <span>Free shipping above ₹1,499</span>
             </div>
           </div>
@@ -67,20 +86,41 @@ export function StoreHomePage() {
               className="relative overflow-hidden rounded-[2rem] border-8 border-white/60 shadow-2xl shadow-rose-950/20 rotate-2"
               style={{ animation: 'float 7s ease-in-out infinite' }}
             >
-              <ProductArt hue={hero.hue} pattern={1} label={heroProduct.name} rounded={false} className="aspect-[3/4] w-full" />
-              <span className="absolute left-4 top-4 rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white shadow">
-                {Math.round(((heroProduct.mrp - heroProduct.price) / heroProduct.mrp) * 100)}% off
-              </span>
-              <div className="absolute inset-x-4 bottom-4 flex items-center justify-between rounded-2xl bg-white/90 px-4 py-3 shadow-lg backdrop-blur">
-                <div>
-                  <p className="font-serif text-sm font-bold text-foreground">{heroProduct.name}</p>
-                  <p className="text-xs text-muted-foreground">by {heroProduct.brand}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-base font-bold text-primary">{formatINR(heroProduct.price)}</p>
-                  <p className="text-xs text-muted-foreground line-through">{formatINR(heroProduct.mrp)}</p>
-                </div>
-              </div>
+              {heroProduct ? (
+                <>
+                  <ProductImage
+                    images={heroProduct.images}
+                    label={heroProduct.name}
+                    seed={heroProduct.id}
+                    rounded={false}
+                    className="aspect-[3/4] w-full"
+                  />
+                  {heroProduct.offPercent > 0 && (
+                    <span className="absolute left-4 top-4 rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white shadow">
+                      {heroProduct.offPercent}% off
+                    </span>
+                  )}
+                  <div className="absolute inset-x-4 bottom-4 flex items-center justify-between rounded-2xl bg-white/90 px-4 py-3 shadow-lg backdrop-blur">
+                    <div className="min-w-0">
+                      <p className="truncate font-serif text-sm font-bold text-foreground">{heroProduct.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">by {heroProduct.brand || heroProduct.vendorName}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-base font-bold text-primary">{formatINR(heroProduct.price)}</p>
+                      {heroStrike && (
+                        <p className="text-xs text-muted-foreground line-through">{formatINR(heroProduct.basePrice)}</p>
+                      )}
+                      {heroDiscount && (
+                        <p className="text-xs font-semibold text-emerald-600">
+                          {heroProduct.offPercent}% off · Save {formatINR(heroProduct.discountAmount)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <ProductArt hue={336} pattern={1} label="LC" rounded={false} className="aspect-[3/4] w-full" />
+              )}
             </div>
           </div>
         </div>
@@ -97,16 +137,16 @@ export function StoreHomePage() {
           </Link>
         </div>
         <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-          {categories.slice(0, 6).map((cat, i) => (
+          {liveCategories.slice(0, 6).map((cat, i) => (
             <Link
-              key={cat.id}
-              to={`/shop/collections?cat=${cat.id}`}
+              key={cat._id}
+              to={`/shop/collections?cat=${cat._id}`}
               className="group overflow-hidden rounded-2xl border border-border bg-card text-center shadow-sm transition-shadow hover:shadow-lg"
             >
-              <ProductArt hue={cat.hue} pattern={i % 6} label={cat.name} className="aspect-square w-full" />
+              <ProductArt hue={hueFromHex(cat.accentColor)} pattern={i % 6} label={cat.name} className="aspect-square w-full" />
               <div className="px-2 py-3">
                 <p className="text-[13px] font-semibold text-foreground group-hover:text-primary">{cat.name}</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">{cat.productCount} styles</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">{countByCategory.get(cat._id) ?? 0} styles</p>
               </div>
             </Link>
           ))}
@@ -120,12 +160,12 @@ export function StoreHomePage() {
               <h2 className="font-serif text-2xl font-bold tracking-tight text-foreground">Bestsellers</h2>
               <p className="mt-1 text-sm text-muted-foreground">The pieces our customers keep re-ordering</p>
             </div>
-            <Link to="/shop/collections?sort=bestselling" className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-primary hover:underline">
+            <Link to="/shop/collections?collection=best" className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-primary hover:underline">
               Shop all <ArrowRight className="size-4" />
             </Link>
           </div>
           <div className="mt-6">
-            <ProductGrid products={bestsellers} />
+            <ProductGrid products={bestsellers} loading={isLoading} />
           </div>
         </div>
       </section>
@@ -136,12 +176,12 @@ export function StoreHomePage() {
             <h2 className="font-serif text-2xl font-bold tracking-tight text-foreground">Just arrived</h2>
             <p className="mt-1 text-sm text-muted-foreground">Fresh drops from our craft partners</p>
           </div>
-          <Link to="/shop/collections?sort=newest" className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-primary hover:underline">
+          <Link to="/shop/collections?collection=new" className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-primary hover:underline">
             Shop all <ArrowRight className="size-4" />
           </Link>
         </div>
         <div className="mt-6">
-          <ProductGrid products={newArrivals} />
+          <ProductGrid products={newArrivals} loading={isLoading} />
         </div>
       </section>
 
@@ -157,7 +197,7 @@ export function StoreHomePage() {
           <div className="flex items-start gap-3">
             <Sparkles className="mt-0.5 size-6" />
             <div>
-              <p className="font-semibold">{session ? 'Welcome back, ' + session.profile.name.split(' ')[0] : 'Members-only offers'}</p>
+              <p className="font-semibold">{session?.profile.name.split(' ')[0] ? 'Welcome back, ' + session.profile.name.split(' ')[0] : 'Members-only offers'}</p>
               <p className="text-sm text-primary-foreground/75">{session ? 'Use your member cashback on the next order.' : 'Sign in to unlock early sale access and cashback.'}</p>
             </div>
           </div>

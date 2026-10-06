@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Eye, Truck } from 'lucide-react'
-import { useVendorShipments } from '@/features/vendor/hooks'
+import { CalendarClock, Eye, Truck } from 'lucide-react'
+import { useVendorOrders, useVendorShipments } from '@/features/vendor/hooks'
+import { CreateShipmentDialog } from '@/features/vendor/shipping/components/create-shipment-dialog'
+import { RequestPickupDialog } from '@/features/vendor/shipping/components/request-pickup-dialog'
+import { ShipmentStatusDialog } from '@/features/vendor/shipping/components/shipment-status-dialog'
 import { PageHeader } from '@/layouts/PageHeader'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -9,16 +12,35 @@ import { Button } from '@/components/ui/button'
 import { formatDateTime } from '@/utils'
 import { DataTable, type AppColumnDef } from '@/components/ui/data-table'
 import { ShipmentStatusBadge } from '@/components/common/status-badge'
+import { isTerminalShipment } from '@/components/common/workflow-status'
 import { ErrorState } from '@/components/common/state'
 import type { VendorShipment } from '@/features/vendor/data/vendor-portal'
 
 export function VendorShippingPage() {
   const navigate = useNavigate()
   const { data: shipments, isLoading, isError, refetch } = useVendorShipments()
+  const { data: orders } = useVendorOrders()
   const [search, setSearch] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [statusTarget, setStatusTarget] = useState<VendorShipment | null>(null)
+  const [pickupTarget, setPickupTarget] = useState<{ shipment: VendorShipment; date: string } | null>(null)
+
+  // Default pickup date is tomorrow; computed on click to keep render pure.
+  const openPickup = (s: VendorShipment) =>
+    setPickupTarget({ shipment: s, date: new Date(Date.now() + 86400000).toISOString().slice(0, 10) })
+
+  // The shipment API does not echo a delivery address, so borrow the city from
+  // the related order. Without this the ETA/destination column is dead weight.
+  const cityByOrder = useMemo(
+    () => new Map((orders ?? []).map((o) => [o.id, o.city])),
+    [orders],
+  )
 
   const rows = useMemo(() => {
-    let list = shipments ?? []
+    let list = (shipments ?? []).map((s) => ({
+      ...s,
+      destination: cityByOrder.get(s.orderId) ?? '—',
+    }))
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter(
@@ -30,7 +52,24 @@ export function VendorShippingPage() {
       )
     }
     return list
-  }, [shipments, search])
+  }, [shipments, cityByOrder, search])
+
+  // The vendor id on the shipment must be the one that owns the order's items,
+  // not the signed-in user's id — the two are different in this API.
+  const vendorId = useMemo(
+    () => (orders ?? []).flatMap((o) => o.items.map((i) => i.vendorId)).find(Boolean),
+    [orders],
+  )
+
+  // Orders that can still be booked, so the picker only offers real work.
+  const shippableOrders = useMemo(
+    () =>
+      (orders ?? [])
+        .filter((o) => !o.status.includes('cancelled') && o.status !== 'delivered')
+        .filter((o) => !(shipments ?? []).some((s) => s.orderId === o.id))
+        .map((o) => ({ id: o.id, label: `${o.orderNumber} · ${o.customer || o.city}` })),
+    [orders, shipments],
+  )
 
   const columns = useMemo<AppColumnDef<VendorShipment>[]>(
     () => [
@@ -90,11 +129,35 @@ export function VendorShippingPage() {
       {
         id: 'actions',
         header: () => <span className="sr-only">Actions</span>,
-        cell: ({ row }) => (
-          <Button variant="ghost" size="icon-sm" onClick={() => navigate(`/vendor/orders/${row.original.orderId}`)}>
-            <Eye className="size-4" />
-          </Button>
-        ),
+        cell: ({ row }) => {
+          const s = row.original
+          const closed = isTerminalShipment(s.apiStatus ?? s.status)
+          return (
+            <div className="flex justify-end gap-1">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title="Request courier pickup"
+                disabled={closed}
+                onClick={() => openPickup(s)}
+              >
+                <CalendarClock className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title="Update status"
+                disabled={closed}
+                onClick={() => setStatusTarget(s)}
+              >
+                <Truck className="size-4" />
+              </Button>
+              <Button variant="ghost" size="icon-sm" title="View order" onClick={() => navigate(`/vendor/orders/${s.orderId}`)}>
+                <Eye className="size-4" />
+              </Button>
+            </div>
+          )
+        },
       },
     ],
     [navigate],
@@ -114,7 +177,14 @@ export function VendorShippingPage() {
         eyebrow="Fulfilment"
         title="Shipping"
         description="Track every package dispatched from Fashion Trends, from pickup to delivery."
-        actions={<Badge variant="secondary">{shipments?.length ?? 0} shipments</Badge>}
+        actions={
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary">{shipments?.length ?? 0} shipments</Badge>
+            <Button className="rounded-full" onClick={() => setCreating(true)}>
+              <Truck className="size-4" /> Create shipment
+            </Button>
+          </div>
+        }
       />
 
       <DataTable
@@ -135,6 +205,29 @@ export function VendorShippingPage() {
           </div>
         }
       />
+
+      <CreateShipmentDialog
+        open={creating}
+        onClose={() => setCreating(false)}
+        orders={shippableOrders}
+        vendorId={vendorId}
+      />
+      {statusTarget && (
+        <ShipmentStatusDialog
+          open
+          shipmentId={statusTarget.id}
+          currentStatus={statusTarget.status}
+          onClose={() => setStatusTarget(null)}
+        />
+      )}
+      {pickupTarget && (
+        <RequestPickupDialog
+          open
+          shipmentId={pickupTarget.shipment.id}
+          defaultPickupDate={pickupTarget.date}
+          onClose={() => setPickupTarget(null)}
+        />
+      )}
     </div>
   )
 }

@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Bell, ChevronDown, KeyRound, LogOut, Menu, Package, Search, ShoppingBag, Store, User, UserCog } from 'lucide-react'
-import { storeProducts } from '@/features/customer/products/data/products'
 import { unreadNotificationCount } from '@/features/customer/data/account'
-import { useCartStore } from '@/store/appStore'
+import { useCartItemCount, useCatalog, useLiveCategories, useLiveSubCategories } from '@/features/customer/hooks'
 import { useAuthStore } from '@/store/appStore'
 import { cn } from '@/utils'
 import { Input } from '@/components/ui/input'
@@ -22,17 +21,13 @@ import {
 import { avatarPalette, initials } from '@/utils'
 import { CategoryMegaMenu } from '@/layouts/CategoryMegaMenu'
 import { PortalCredentials } from '@/layouts/PortalCredentials'
-import { categories } from '@/features/admin/categories/data/categories'
-import { subcategories } from '@/features/admin/subcategories/data/subcategories'
 
 const lcLogo = new URL('../assets/Lc.png', import.meta.url).href
 
-const NAV_LINKS = [
-  { label: 'Home', to: '/shop' },
-  { label: 'Bestsellers', to: '/shop/collections?sort=bestselling' },
-  { label: 'New arrivals', to: '/shop/collections?sort=newest' },
-  { label: 'Sarees', to: '/shop/collections?cat=cat-ethnic' },
-]
+interface NavLinkItem {
+  label: string
+  to: string
+}
 
 export function StoreHeader() {
   const [query, setQuery] = useState('')
@@ -40,17 +35,28 @@ export function StoreHeader() {
   const [categoriesOpen, setCategoriesOpen] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
-  const cartCount = useCartStore((s) => s.items.reduce((n, i) => n + i.quantity, 0))
+  const cartCount = useCartItemCount()
+  const { data: liveCategories = [] } = useLiveCategories()
+  const { data: liveSubcategories = [] } = useLiveSubCategories()
+  const { data: catalog = [] } = useCatalog()
   const session = useAuthStore((s) => s.session)
   const logout = useAuthStore((s) => s.logout)
   const unread = unreadNotificationCount()
   const navRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    setMobileOpen(false)
-    setCategoriesOpen(false)
-  }, [location.pathname, location.search])
+  const navLinks = useMemo<NavLinkItem[]>(
+    () => [
+      { label: 'Home', to: '/shop' },
+      { label: 'Bestsellers', to: '/shop/collections?collection=best' },
+      { label: 'New arrivals', to: '/shop/collections?collection=new' },
+      ...liveCategories
+        .filter((cat) => catalog.some((p) => p.categoryId === cat._id))
+        .slice(0, 2)
+        .map((cat) => ({ label: cat.name, to: `/shop/collections?cat=${cat._id}` })),
+    ],
+    [liveCategories, catalog],
+  )
 
   useEffect(() => {
     if (!categoriesOpen) return
@@ -64,8 +70,13 @@ export function StoreHeader() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [categoriesOpen])
 
+  function closeMobile() {
+    setMobileOpen(false)
+  }
+
   function submitSearch(e: FormEvent) {
     e.preventDefault()
+    setMobileOpen(false)
     navigate(query.trim() ? `/shop/search?q=${encodeURIComponent(query.trim())}` : '/shop/search')
   }
 
@@ -92,16 +103,17 @@ export function StoreHeader() {
             <SheetContent side="left" showCloseButton={false} className="w-80 overflow-y-auto">
               <SheetTitle className="px-6 pt-6 font-serif">Ladies Collection</SheetTitle>
               <nav className="mt-2 flex flex-col gap-1 px-3">
-                {NAV_LINKS.map((link) => (
+                {navLinks.map((link) => (
                   <Link
                     key={link.label}
                     to={link.to}
+                    onClick={closeMobile}
                     className="rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-accent"
                   >
                     {link.label}
                   </Link>
                 ))}
-                <Link to="/shop/orders/mine" className="rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-accent">
+                <Link to="/shop/orders/mine" onClick={closeMobile} className="rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-accent">
                   My orders
                 </Link>
               </nav>
@@ -110,16 +122,16 @@ export function StoreHeader() {
                 Categories
               </p>
               <nav className="mt-1 flex flex-col gap-3 px-3 pb-4">
-                {categories.map((cat) => {
-                  const subs = subcategories.filter((s) => s.categoryId === cat.id)
+                {liveCategories.map((cat) => {
+                  const subs = liveSubcategories.filter((s) => s.categoryId === cat._id)
                   return (
-                    <div key={cat.id} className="rounded-xl px-3 py-2">
-                      <Link to={`/shop/collections?cat=${cat.id}`} className="text-sm font-semibold text-foreground hover:text-primary">
+                    <div key={cat._id} className="rounded-xl px-3 py-2">
+                      <Link to={`/shop/collections?cat=${cat._id}`} onClick={closeMobile} className="text-sm font-semibold text-foreground hover:text-primary">
                         {cat.name}
                       </Link>
                       <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
                         {subs.map((s) => (
-                          <Link key={s.id} to={`/shop/collections?cat=${cat.id}`} className="text-xs text-muted-foreground hover:text-primary">
+                          <Link key={s._id} to={`/shop/collections?cat=${cat._id}`} onClick={closeMobile} className="text-xs text-muted-foreground hover:text-primary">
                             {s.name}
                           </Link>
                         ))}
@@ -133,8 +145,12 @@ export function StoreHeader() {
                 Portals
               </p>
               <nav className="mt-1 flex flex-col gap-1 px-3">
-                <Link to={session ? '/shop/profile' : '/shop/login?redirect=/shop/profile'} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-accent">
-                  <User className="size-4" /> Customer account
+                <Link
+                  to={session ? '/shop/profile' : '/shop/login'}
+                  onClick={closeMobile}
+                  className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-accent"
+                >
+                  <User className="size-4" /> {session ? 'Customer account' : 'Customer login'}
                 </Link>
                 {session && (
                   <button
@@ -149,10 +165,10 @@ export function StoreHeader() {
                     <LogOut className="size-4" /> Sign out
                   </button>
                 )}
-                <Link to="/vendor/login" className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-accent">
+                <Link to="/vendor/login" onClick={closeMobile} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-accent">
                   <Store className="size-4" /> Vendor login
                 </Link>
-                <Link to="/login" className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-accent">
+                <Link to="/login" onClick={closeMobile} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium hover:bg-accent">
                   <Store className="size-4" /> Admin login
                 </Link>
               </nav>
@@ -188,9 +204,8 @@ export function StoreHeader() {
               Categories
               <ChevronDown className={cn('size-3.5 transition-transform', categoriesOpen && 'rotate-180')} />
             </button>
-            {NAV_LINKS.map((link) => {
-              const [to] = link.to.split('?')
-              const active = location.pathname === to
+            {navLinks.map((link) => {
+              const active = `${location.pathname}${location.search}` === link.to
               return (
                 <NavLink
                   key={link.label}
@@ -229,13 +244,21 @@ export function StoreHeader() {
                 {notificationDot && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-primary" />}
               </Button>
             </Link>
-            <Link to={session ? '/shop/profile' : '/shop/login?redirect=/shop/profile'} className="hidden sm:inline-flex">
-              {!session && (
-                <Button variant="ghost" size="icon" className="rounded-full border border-border/80 bg-white shadow-sm" aria-label="Account">
-                  <User className="size-4" />
-                </Button>
-              )}
-            </Link>
+            {!session ? (
+              <>
+                <Link to="/shop/login" className="hidden sm:inline-flex">
+                  <Button className="rounded-full px-4 font-semibold shadow-sm shadow-primary/20">
+                    <User className="size-4" />
+                    Login
+                  </Button>
+                </Link>
+                <Link to="/shop/login" className="sm:hidden">
+                  <Button variant="ghost" size="icon" className="rounded-full border border-border/80 bg-white shadow-sm" aria-label="Login">
+                    <User className="size-4" />
+                  </Button>
+                </Link>
+              </>
+            ) : null}
             {session && (
               <div className="hidden items-center gap-1 sm:flex">
                 <DropdownMenu>
@@ -308,13 +331,13 @@ export function StoreHeader() {
           <Link to="/shop/categories" className="whitespace-nowrap text-sm font-medium text-foreground/70 hover:text-primary">
             Categories
           </Link>
-          {NAV_LINKS.map((link) => (
+          {navLinks.map((link) => (
             <Link key={link.label} to={link.to} className="whitespace-nowrap text-sm font-medium text-foreground/70 hover:text-primary">
               {link.label}
             </Link>
           ))}
           <span className="ml-auto hidden whitespace-nowrap text-[13px] font-medium text-muted-foreground sm:inline-block">
-            {storeProducts.length} curated pieces
+            {catalog.length} curated pieces
           </span>
         </nav>
       </div>

@@ -1,26 +1,26 @@
 import { Link } from 'react-router-dom'
 import { KeyRound } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { ADMIN_EMAIL, VENDOR_EMAIL } from '@/store/appStore'
+import { ADMIN_EMAIL } from '@/store/appStore'
 
 const CREDENTIALS = [
-  {
-    role: 'Customer',
-    to: '/shop/login',
-    email: 'ananya@example.com',
-    password: 'any 4+ characters',
-  },
-  {
-    role: 'Vendor',
-    to: '/vendor/login',
-    email: VENDOR_EMAIL,
-    password: 'any 6+ characters',
-  },
   {
     role: 'Admin',
     to: '/login',
     email: ADMIN_EMAIL,
-    password: 'any 6+ characters',
+    password: 'Admin@123',
+  },
+  {
+    role: 'Customer',
+    to: '/shop/register',
+    email: 'Register with any email',
+    password: 'of your choice',
+  },
+  {
+    role: 'Vendor',
+    to: '/vendor/register',
+    email: 'Register with any email',
+    password: 'of your choice',
   },
 ]
 

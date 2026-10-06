@@ -3,8 +3,8 @@ import type { FormEvent } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { LogOut, MapPin, Mail, Pencil, Phone, Save } from 'lucide-react'
 import { toast } from 'sonner'
+import { useAddresses } from '@/features/customer/hooks'
 import { useAuthStore } from '@/store/appStore'
-import { ananya } from '@/features/customer/data/account'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,6 +15,7 @@ export function ProfilePage() {
   const session = useAuthStore((s) => s.session)
   const setProfile = useAuthStore((s) => s.setProfile)
   const logout = useAuthStore((s) => s.logout)
+  const { data: apiAddresses, isLoading: addressesLoading } = useAddresses()
 
   const [name, setName] = useState(session?.profile.name ?? '')
   const [mobile, setMobile] = useState(session?.profile.mobile ?? '')
@@ -50,7 +51,7 @@ export function ProfilePage() {
           </Avatar>
           <div className="min-w-0">
             <p className="truncate font-serif text-lg font-bold text-foreground">{editing ? name || session.profile.name : session.profile.name}</p>
-            <p className="text-xs text-muted-foreground">Member since {new Date(ananya.joined).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })} · Verified account</p>
+            <p className="text-xs text-muted-foreground">Member since {new Date(session.profile.joined).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })} · Verified account</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button
@@ -121,7 +122,9 @@ export function ProfilePage() {
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-border bg-card p-5">
         <div>
           <p className="text-sm font-semibold text-foreground">Saved addresses</p>
-          <p className="text-xs text-muted-foreground">3 addresses available for faster checkout</p>
+          <p className="text-xs text-muted-foreground">
+            {addressesLoading ? 'Loading…' : `${apiAddresses?.length ?? 0} address${apiAddresses?.length === 1 ? '' : 'es'} available for faster checkout`}
+          </p>
         </div>
         <Button asChild variant="outline" size="sm" className="rounded-full">
           <Link to="/shop/addresses">Manage</Link>

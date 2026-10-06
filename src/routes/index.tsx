@@ -7,6 +7,7 @@ import { AuthLayout } from '@/layouts/AuthLayout'
 
 import { AdminLoginPage } from '@/features/auth/pages/AdminLoginPage'
 import { VendorLoginPage } from '@/features/auth/pages/VendorLoginPage'
+import { VendorRegisterPage } from '@/features/auth/pages/VendorRegisterPage'
 import { LoginPage } from '@/features/auth/pages/LoginPage'
 import { RegisterPage } from '@/features/auth/pages/RegisterPage'
 import { ForgotPasswordPage } from '@/features/auth/pages/ForgotPasswordPage'
@@ -22,6 +23,10 @@ import { VendorsPage } from '@/features/admin/vendors/VendorsPage'
 import { VendorDetailsPage } from '@/features/admin/vendors/VendorDetailsPage'
 import { OrdersPage } from '@/features/admin/orders/OrdersPage'
 import { OrderDetailsPage } from '@/features/admin/orders/OrderDetailsPage'
+import { AdminReturnsPage } from '@/features/admin/returns/ReturnsPage'
+import { AdminReturnDetailsPage } from '@/features/admin/returns/ReturnDetailsPage'
+import { AdminRefundsPage } from '@/features/admin/refunds/RefundsPage'
+import { AdminRefundDetailsPage } from '@/features/admin/refunds/RefundDetailsPage'
 import { PaymentsPage } from '@/features/admin/payments/PaymentsPage'
 import { ShipmentsPage } from '@/features/admin/shipping/ShippingPage'
 import { SettlementsPage } from '@/features/admin/settlements/SettlementsPage'
@@ -40,11 +45,16 @@ import { VendorProductVariantsPage } from '@/features/vendor/variants/VariantsPa
 import { VendorInventoryPage } from '@/features/vendor/inventory/InventoryPage'
 import { VendorOrdersPage } from '@/features/vendor/orders/OrdersPage'
 import { VendorOrderDetailsPage } from '@/features/vendor/orders/OrderDetailsPage'
+import { VendorReturnsPage } from '@/features/vendor/returns/ReturnsPage'
+import { VendorReturnDetailsPage } from '@/features/vendor/returns/ReturnDetailsPage'
+import { VendorRefundsPage } from '@/features/vendor/refunds/RefundsPage'
+import { VendorRefundDetailsPage } from '@/features/vendor/refunds/RefundDetailsPage'
 import { VendorShippingPage } from '@/features/vendor/shipping/ShippingPage'
 import { VendorEarningsPage } from '@/features/vendor/earnings/EarningsPage'
 import { VendorSettlementsPage } from '@/features/vendor/settlements/SettlementsPage'
 import { VendorSettlementDetailsPage } from '@/features/vendor/settlements/SettlementDetailsPage'
 import { VendorProfilePage } from '@/features/vendor/profile/ProfilePage'
+import { VendorBusinessSetupPage } from '@/features/vendor/profile/BusinessSetupPage'
 
 import { StoreHomePage } from '@/features/customer/home/HomePage'
 import { CategoriesPage as StoreCategoriesPage } from '@/features/customer/categories/CategoriesPage'
@@ -79,6 +89,10 @@ export const router = createBrowserRouter([
       { path: 'vendors/:id', element: <VendorDetailsPage /> },
       { path: 'orders', element: <OrdersPage /> },
       { path: 'orders/:id', element: <OrderDetailsPage /> },
+      { path: 'returns', element: <AdminReturnsPage /> },
+      { path: 'returns/:id', element: <AdminReturnDetailsPage /> },
+      { path: 'refunds', element: <AdminRefundsPage /> },
+      { path: 'refunds/:id', element: <AdminRefundDetailsPage /> },
       { path: 'payments', element: <PaymentsPage /> },
       { path: 'shipments', element: <ShipmentsPage /> },
       { path: 'settlements', element: <SettlementsPage /> },
@@ -102,10 +116,15 @@ export const router = createBrowserRouter([
       { path: 'inventory', element: <VendorInventoryPage /> },
       { path: 'orders', element: <VendorOrdersPage /> },
       { path: 'orders/:id', element: <VendorOrderDetailsPage /> },
+      { path: 'returns', element: <VendorReturnsPage /> },
+      { path: 'returns/:id', element: <VendorReturnDetailsPage /> },
+      { path: 'refunds', element: <VendorRefundsPage /> },
+      { path: 'refunds/:id', element: <VendorRefundDetailsPage /> },
       { path: 'shipping', element: <VendorShippingPage /> },
       { path: 'earnings', element: <VendorEarningsPage /> },
       { path: 'settlements', element: <VendorSettlementsPage /> },
       { path: 'settlements/:id', element: <VendorSettlementDetailsPage /> },
+      { path: 'business-setup', element: <VendorBusinessSetupPage /> },
       { path: 'profile', element: <VendorProfilePage /> },
       { path: '*', element: <Navigate to="/vendor" replace /> },
     ],
@@ -142,6 +161,11 @@ export const router = createBrowserRouter([
     path: '/vendor/login',
     element: <AuthLayout />,
     children: [{ index: true, element: <VendorLoginPage /> }],
+  },
+  {
+    path: '/vendor/register',
+    element: <AuthLayout />,
+    children: [{ index: true, element: <VendorRegisterPage /> }],
   },
   {
     path: '/shop/login',

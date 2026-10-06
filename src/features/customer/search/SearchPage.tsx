@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -8,11 +8,8 @@ import { ProductExplorer } from '@/features/customer/products/components/product
 export function SearchPage() {
   const [params, setParams] = useSearchParams()
   const urlQuery = params.get('q') ?? ''
-  const [text, setText] = useState(urlQuery)
-
-  useEffect(() => {
-    setText(urlQuery)
-  }, [urlQuery])
+  const [edited, setEdited] = useState<string | null>(null)
+  const text = edited !== null ? edited : urlQuery
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-10">
@@ -26,13 +23,14 @@ export function SearchPage() {
           className="relative mt-5 max-w-2xl"
           onSubmit={(e) => {
             e.preventDefault()
+            setEdited(null)
             setParams(text.trim() ? { q: text.trim() } : {}, { replace: true })
           }}
         >
           <Search className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => setEdited(e.target.value)}
             placeholder="Try “silk saree”, “kurti”, “Gulmohar”…"
             className="h-12 rounded-2xl pl-12 pr-24"
           />

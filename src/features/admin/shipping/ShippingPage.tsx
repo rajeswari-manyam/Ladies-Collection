@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
-import { MapPin, PackageCheck, Plane, RefreshCcw, Truck } from 'lucide-react'
-import { toast } from 'sonner'
-import { useShipments } from '@/features/admin/hooks'
+import { MapPin, PackageCheck, Plane, Truck } from 'lucide-react'
+import { useShipments, useUpdateShipmentStatus } from '@/features/admin/hooks'
+import { ShipmentStatusDialog } from '@/features/vendor/shipping/components/shipment-status-dialog'
+import { toApiShipmentStatus } from '@/features/vendor/shipping/adapter'
 import { PageHeader } from '@/layouts/PageHeader'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -9,16 +10,28 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DataTable, type AppColumnDef } from '@/components/ui/data-table'
 import { ShipmentStatusBadge } from '@/components/common/status-badge'
+import { shipmentStatusText } from '@/components/common/workflow-status'
 import { ErrorState } from '@/components/common/state'
 import { formatDate, formatDateTime } from '@/utils'
 import type { Shipment, ShipmentStatus } from '@/features/admin/types'
 
-const statuses: ShipmentStatus[] = ['pending', 'in-transit', 'out-for-delivery', 'delivered', 'failed']
+/** Every status the shipment API can return, in delivery order. */
+const statuses: ShipmentStatus[] = [
+  'pending',
+  'picked_up',
+  'in-transit',
+  'out-for-delivery',
+  'delivered',
+  'returned',
+  'failed',
+]
 
 export function ShipmentsPage() {
   const { data: shipments, isLoading, isError, refetch } = useShipments()
+  const updateShipment = useUpdateShipmentStatus()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [statusTarget, setStatusTarget] = useState<Shipment | null>(null)
 
   const rows = useMemo(() => {
     let list = shipments ?? []
@@ -37,8 +50,8 @@ export function ShipmentsPage() {
   }, [shipments, statusFilter, search])
 
   const countByStatus = useMemo(() => {
-    const base: Record<string, number> = { pending: 0, 'in-transit': 0, 'out-for-delivery': 0, delivered: 0, failed: 0 }
-    for (const s of shipments ?? []) base[s.status] += 1
+    const base: Record<string, number> = Object.fromEntries(statuses.map((s) => [s, 0]))
+    for (const s of shipments ?? []) base[s.status] = (base[s.status] ?? 0) + 1
     return base
   }, [shipments])
 
@@ -100,13 +113,14 @@ export function ShipmentsPage() {
       {
         id: 'actions',
         header: () => <span className="sr-only">Actions</span>,
-        cell: () => (
+        cell: ({ row }) => (
           <Button
             variant="ghost"
-            size="icon-sm"
-            onClick={() => toast.info('Tracking refreshed', { description: 'No new events in the mock courier feed.' })}
+            size="sm"
+            className="rounded-full"
+            onClick={() => setStatusTarget(row.original)}
           >
-            <RefreshCcw className="size-3.5" />
+            Update
           </Button>
         ),
       },
@@ -130,7 +144,7 @@ export function ShipmentsPage() {
         description="Live view of parcels moving from vendor studios to customers."
       />
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
         {statuses.map((s) => (
           <Card key={s}>
             <CardContent className="flex items-center gap-3 p-4">
@@ -138,8 +152,8 @@ export function ShipmentsPage() {
                 {s === 'delivered' ? <PackageCheck className="size-4.5" /> : <Plane className="size-4.5" />}
               </div>
               <div className="min-w-0">
-                <p className="truncate text-xs capitalize text-muted-foreground">{s.replace('-', ' ')}</p>
-                <p className="font-serif text-lg font-semibold leading-tight">{countByStatus[s]}</p>
+                <p className="truncate text-xs text-muted-foreground">{shipmentStatusText(s)}</p>
+                <p className="font-serif text-lg font-semibold leading-tight">{countByStatus[s] ?? 0}</p>
               </div>
             </CardContent>
           </Card>
@@ -168,7 +182,7 @@ export function ShipmentsPage() {
                   <SelectItem value="all">All statuses</SelectItem>
                   {statuses.map((s) => (
                     <SelectItem key={s} value={s}>
-                      {s[0].toUpperCase() + s.slice(1).replace('-', ' ')}
+                      {shipmentStatusText(s)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -178,6 +192,23 @@ export function ShipmentsPage() {
           </div>
         }
       />
+
+      {statusTarget && (
+        <ShipmentStatusDialog
+          open
+          shipmentId={statusTarget.id}
+          currentStatus={toApiShipmentStatus(statusTarget.status)}
+          onClose={() => setStatusTarget(null)}
+          onSubmit={(input) =>
+            updateShipment.mutateAsync({
+              id: statusTarget.id,
+              status: toApiShipmentStatus(input.shipmentStatus),
+              location: input.location,
+              description: input.description,
+            })
+          }
+        />
+      )}
     </div>
   )
 }

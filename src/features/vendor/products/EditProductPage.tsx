@@ -3,19 +3,17 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { ArrowLeft, Save } from 'lucide-react'
+import { ArrowLeft, Plus, Save, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { useVendorProduct, useUpdateVendorProduct } from '@/features/vendor/hooks'
+import { useVendorProduct, useUpdateVendorProduct, useCatalogOptions } from '@/features/vendor/hooks'
+import { productRefId } from '@/services/product.service'
 import { PageHeader } from '@/layouts/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/common/state'
-import { ProductStatusBadge } from '@/components/common/status-badge'
-import { formatCurrency } from '@/utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
@@ -24,66 +22,78 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { VENDOR_CATEGORIES } from '@/features/vendor/products/AddProductPage'
 
 const schema = z.object({
   name: z.string().min(3, 'Name must be at least 3 characters'),
-  category: z.string().min(1, 'Select a category'),
-  color: z.string().min(1, 'Add a color'),
+  slug: z.string().optional(),
+  brand: z.string().optional(),
   description: z.string().min(10, 'Add a short description'),
-  price: z.coerce.number().positive('Price must be positive'),
-  mrp: z.string().optional(),
-  stock: z.coerce.number().min(0).int(),
-  tags: z.string(),
-  featured: z.boolean().default(false),
+  images: z.string().optional(),
 })
 
 type FormValues = z.infer<typeof schema>
+
+interface SpecRow {
+  key: string
+  value: string
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function parseImages(raw: string): string[] {
+  return raw
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
 
 export function VendorEditProductPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const { data: product, isLoading } = useVendorProduct(id)
+  const { data: catalog } = useCatalogOptions()
   const update = useUpdateVendorProduct()
-  const [saving, setSaving] = useState(false)
-
   const {
     register,
     handleSubmit,
-    setValue,
-    watch,
     reset,
     formState: { errors },
   } = useForm<FormValues>({
-    resolver: zodResolver(schema) as Resolver<FormValues, any, any>,
-    defaultValues: {
-      name: '',
-      category: '',
-      color: '',
-      description: '',
-      price: 0,
-      mrp: '',
-      stock: 0,
-      tags: '',
-      featured: false,
-    },
+    resolver: zodResolver(schema) as unknown as Resolver<FormValues>,
+    defaultValues: { name: '', slug: '', brand: '', description: '', images: '' },
   })
+  const [categoryId, setCategoryId] = useState('')
+  const [subCategoryId, setSubCategoryId] = useState('')
+  const [specs, setSpecs] = useState<SpecRow[]>([])
+  const [loadedId, setLoadedId] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (product) {
-      reset({
-        name: product.name,
-        category: product.category,
-        color: product.color,
-        description: product.description,
-        price: product.price,
-        mrp: product.mrp ? String(product.mrp) : '',
-        stock: product.stock,
-        tags: product.tags.join(', '),
-        featured: product.featured,
-      })
-    }
+    if (!product) return
+    reset({
+      name: product.name,
+      slug: product.slug,
+      brand: product.brand,
+      description: product.description,
+      images: Array.isArray(product.images) ? product.images.join('\n') : '',
+    })
   }, [product, reset])
+
+  if (product && product._id !== loadedId) {
+    setLoadedId(product._id)
+    setCategoryId(productRefId(product.categoryId))
+    setSubCategoryId(productRefId(product.subCategoryId))
+    const entries = Object.entries(product.specifications ?? {})
+    setSpecs(entries.length ? entries.map(([key, value]) => ({ key, value })) : [{ key: '', value: '' }])
+  }
+
+  const subcategories = (catalog?.subcategories ?? []).filter((s) => s.categoryId === categoryId)
 
   const submit = async (values: FormValues) => {
     setSaving(true)
@@ -92,17 +102,14 @@ export function VendorEditProductPage() {
         id,
         patch: {
           name: values.name,
-          category: values.category,
-          color: values.color,
+          slug: slugify(values.slug || values.name),
+          brand: values.brand?.trim() || undefined,
           description: values.description,
-          price: values.price,
-          mrp: values.mrp ? Number(values.mrp) : null,
-          stock: values.stock,
-          tags: values.tags
-            .split(',')
-            .map((t) => t.trim())
-            .filter(Boolean),
-          featured: values.featured,
+          images: parseImages(values.images ?? ''),
+          specifications: specs.filter((s) => s.key.trim()).reduce<Record<string, string>>((acc, s) => {
+            acc[s.key.trim()] = s.value.trim()
+            return acc
+          }, {}),
         },
       })
       toast.success('Product updated', { description: `${values.name} was saved.` })
@@ -154,15 +161,12 @@ export function VendorEditProductPage() {
       <PageHeader
         eyebrow="Catalog"
         title={product.name}
-        description={`Listed ${product.createdAt} · ${product.sold} sold · ${formatCurrency(product.price)}`}
+        description={`${product.brand || 'Unbranded'} · Approval: ${product.approvalStatus || 'pending'}`}
         actions={
-          <div className="flex items-center gap-2">
-            <ProductStatusBadge status={product.status} />
-            <Button onClick={handleSubmit(submit)} disabled={saving}>
-              <Save className="size-4" />
-              {saving ? 'Saving…' : 'Save changes'}
-            </Button>
-          </div>
+          <Button onClick={handleSubmit(submit)} disabled={saving}>
+            <Save className="size-4" />
+            {saving ? 'Saving…' : 'Save changes'}
+          </Button>
         }
       />
 
@@ -178,26 +182,21 @@ export function VendorEditProductPage() {
               <Input id="name" placeholder="e.g. Banarasi Silk Saree" {...register('name')} />
               {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
             </div>
-            <div className="space-y-1.5">
-              <Label>Category</Label>
-              <Select value={watch('category')} onValueChange={(v) => setValue('category', v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {VENDOR_CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.category && <p className="text-xs text-destructive">{errors.category.message}</p>}
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="slug">Slug</Label>
+              <Input id="slug" placeholder="Auto-generated from name, or set your own" {...register('slug')} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="color">Color</Label>
-              <Input id="color" placeholder="e.g. Teal" {...register('color')} />
-              {errors.color && <p className="text-xs text-destructive">{errors.color.message}</p>}
+              <Label htmlFor="brand">Brand</Label>
+              <Input id="brand" placeholder="e.g. Saree House" {...register('brand')} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="images">Image URLs</Label>
+              <Input
+                id="images"
+                placeholder="https://… , https://… (comma separated)"
+                {...register('images')}
+              />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="description">Short description</Label>
@@ -209,40 +208,82 @@ export function VendorEditProductPage() {
               />
               {errors.description && <p className="text-xs text-destructive">{errors.description.message}</p>}
             </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="tags">Tags</Label>
-              <Input id="tags" placeholder="Comma separated, e.g. best-seller, bridal, saree" {...register('tags')} />
-            </div>
           </CardContent>
         </Card>
 
         <div className="flex flex-col gap-4">
           <Card>
             <CardHeader>
-              <CardTitle>Pricing & stock</CardTitle>
-              <CardDescription>Set the selling price and availability.</CardDescription>
+              <CardTitle>Category & specifications</CardTitle>
+              <CardDescription>Where the product appears and its key attributes.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="price">Price (₹)</Label>
-                <Input id="price" type="number" step="1" placeholder="0" {...register('price')} />
-                {errors.price && <p className="text-xs text-destructive">{errors.price.message}</p>}
+                <Label>Category</Label>
+                <Select value={categoryId} onValueChange={(v) => { setCategoryId(v); setSubCategoryId('') }}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(catalog?.categories ?? []).map((c) => (
+                      <SelectItem key={c._id} value={c._id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="mrp">Compare-at price (MRP)</Label>
-                <Input id="mrp" type="number" step="1" placeholder="optional" {...register('mrp')} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="stock">Stock units</Label>
-                <Input id="stock" type="number" {...register('stock')} />
-                {errors.stock && <p className="text-xs text-destructive">{errors.stock.message}</p>}
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-border p-3">
-                <div>
-                  <p className="text-sm font-medium">Featured listing</p>
-                  <p className="text-xs text-muted-foreground">Promote this product on the marketplace</p>
+              {subcategories.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label>Subcategory</Label>
+                  <Select value={subCategoryId} onValueChange={setSubCategoryId}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {subcategories.map((s) => (
+                        <SelectItem key={s._id} value={s._id}>
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <Switch checked={watch('featured')} onCheckedChange={(v) => setValue('featured', v)} />
+              )}
+              <div className="space-y-2">
+                <Label>Specifications</Label>
+                {specs.map((spec, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <Input
+                      placeholder="Key (e.g. fabric)"
+                      value={spec.key}
+                      onChange={(e) => setSpecs((list) => list.map((s, j) => (j === i ? { ...s, key: e.target.value } : s)))}
+                    />
+                    <Input
+                      placeholder="Value (e.g. Pure Silk)"
+                      value={spec.value}
+                      onChange={(e) => setSpecs((list) => list.map((s, j) => (j === i ? { ...s, value: e.target.value } : s)))}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setSpecs((list) => list.filter((_, j) => j !== i))}
+                      aria-label="Remove specification"
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSpecs((list) => [...list, { key: '', value: '' }])}
+                >
+                  <Plus className="size-3.5" />
+                  Add specification
+                </Button>
               </div>
             </CardContent>
           </Card>

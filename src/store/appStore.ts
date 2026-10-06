@@ -1,34 +1,81 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { CartItem, StoreProfile, TrackStep } from '@/types'
+import type { StoreProfile, TrackStep } from '@/types'
 import {
   ADMIN_EMAIL,
-  VENDOR_EMAIL,
   authenticateAdmin,
   authenticateCustomer,
   authenticateVendor,
+  changePassword,
+  getAllUsers,
   registerCustomer,
+  registerVendor,
+  updateProfile,
   type AdminSession,
+  type ApiUser,
   type CustomerSession,
+  type UserQuery,
   type VendorSession,
 } from '@/services/auth.service'
+import { registerVendor as createVendorProfile } from '@/services/vendor.service'
 
-export { ADMIN_EMAIL, VENDOR_EMAIL }
+export { ADMIN_EMAIL }
 
 interface AdminState {
   session: AdminSession | null
   login: (email: string, password: string) => Promise<void>
+  updateProfile: (patch: { name?: string; profileImage?: string | null }) => Promise<void>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>
+  getUsers: (query?: UserQuery) => Promise<{
+    users: ApiUser[]
+    total: number
+    page: number
+    totalPages: number
+  }>
   logout: () => void
 }
 
 export const useAdminStore = create<AdminState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       session: null,
 
       login: async (email, password) => {
         const session = await authenticateAdmin(email, password)
         set({ session })
+      },
+
+      updateProfile: async (patch) => {
+        const token = get().session?.token
+        if (!token) throw new Error('Sign in again to update your profile')
+        const user = await updateProfile(token, patch)
+        set((state) =>
+          state.session
+            ? {
+                session: {
+                  ...state.session,
+                  profile: {
+                    ...state.session.profile,
+                    name: user.name,
+                    email: user.email,
+                    profileImage: user.profileImage,
+                  },
+                },
+              }
+            : state,
+        )
+      },
+
+      changePassword: async (currentPassword, newPassword) => {
+        const token = get().session?.token
+        if (!token) throw new Error('Sign in to change your password')
+        await changePassword(token, { currentPassword, newPassword })
+      },
+
+      getUsers: async (query) => {
+        const token = get().session?.token
+        if (!token) throw new Error('Sign in to list users')
+        return getAllUsers(query, token)
       },
 
       logout: () => set({ session: null }),
@@ -42,17 +89,65 @@ export const useAdminStore = create<AdminState>()(
 interface VendorState {
   session: VendorSession | null
   login: (email: string, password: string) => Promise<void>
+  register: (name: string, email: string, mobile: string, password: string) => Promise<void>
+  updateProfile: (patch: { name?: string }) => Promise<void>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>
   logout: () => void
 }
 
 export const useVendorStore = create<VendorState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       session: null,
 
       login: async (email, password) => {
         const session = await authenticateVendor(email, password)
         set({ session })
+      },
+
+      register: async (name, email, mobile, password) => {
+        const session = await registerVendor({ name, email, mobile, password })
+        set({ session })
+        // Every vendor-scoped API call resolves against a seller profile, so it has
+        // to exist from the start or the whole portal answers 404. Real details get
+        // filled in later through Business setup.
+        await createVendorProfile(session.token, {
+          businessName: `${name.trim()} Store`,
+          ownerName: name.trim(),
+          email,
+          mobile,
+          gstNumber: '',
+          panNumber: '',
+          businessAddress: { addressLine1: '', city: '', state: '', country: 'India', pincode: '' },
+        }).catch((err: unknown) => {
+          throw new Error(
+            `Your account was created, but the seller profile could not be set up (${
+              err instanceof Error ? err.message : 'unknown error'
+            }). Sign in and complete Business setup.`,
+          )
+        })
+      },
+
+      updateProfile: async (patch) => {
+        const token = get().session?.token
+        if (!token) throw new Error('Sign in again to update your profile')
+        const user = await updateProfile(token, patch)
+        set((state) =>
+          state.session
+            ? {
+                session: {
+                  ...state.session,
+                  profile: { ...state.session.profile, name: user.name, email: user.email },
+                },
+              }
+            : state,
+        )
+      },
+
+      changePassword: async (currentPassword, newPassword) => {
+        const token = get().session?.token
+        if (!token) throw new Error('Sign in to change your password')
+        await changePassword(token, { currentPassword, newPassword })
       },
 
       logout: () => set({ session: null }),
@@ -67,13 +162,14 @@ interface AuthState {
   session: CustomerSession | null
   login: (email: string, password: string) => Promise<void>
   register: (name: string, email: string, mobile: string, password: string) => Promise<void>
-  setProfile: (patch: Partial<StoreProfile>) => void
+  setProfile: (patch: Partial<StoreProfile>) => Promise<void>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>
   logout: () => void
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       session: null,
 
       login: async (email, password) => {
@@ -86,82 +182,36 @@ export const useAuthStore = create<AuthState>()(
         set({ session })
       },
 
-      setProfile: (patch) =>
+      setProfile: async (patch) => {
+        const token = get().session?.token
+        const updatedUser = token
+          ? await updateProfile(token, { name: patch.name })
+          : null
         set((state) =>
           state.session
-            ? { session: { ...state.session, profile: { ...state.session.profile, ...patch } } }
+            ? {
+                session: {
+                  ...state.session,
+                  profile: {
+                    ...state.session.profile,
+                    ...patch,
+                    ...(updatedUser ? { name: updatedUser.name } : {}),
+                  },
+                },
+              }
             : state,
-        ),
+        )
+      },
+
+      changePassword: async (currentPassword, newPassword) => {
+        const token = get().session?.token
+        if (!token) throw new Error('Sign in to change your password')
+        await changePassword(token, { currentPassword, newPassword })
+      },
 
       logout: () => set({ session: null }),
     }),
     { name: 'lc-customer-session' },
-  ),
-)
-
-// -------- Customer cart --------
-
-interface CartState {
-  items: CartItem[]
-  couponCode: string | null
-  addItem: (item: CartItem) => void
-  removeItem: (productId: string, size: string, color: string) => void
-  updateQuantity: (productId: string, size: string, color: string, quantity: number) => void
-  clear: () => void
-  applyCoupon: (code: string) => boolean
-  clearCoupon: () => void
-}
-
-export function cartItemKey(item: Pick<CartItem, 'productId' | 'size' | 'color'>) {
-  return `${item.productId}__${item.size}__${item.color}`
-}
-
-const COUPON_APPLICABLE = new Set(['LC100', 'LC10'])
-
-export const useCartStore = create<CartState>()(
-  persist(
-    (set) => ({
-      items: [],
-      couponCode: null,
-
-      addItem: (item) =>
-        set((state) => {
-          const key = cartItemKey(item)
-          const existing = state.items.find((i) => cartItemKey(i) === key)
-          if (existing) {
-            return {
-              items: state.items.map((i) =>
-                cartItemKey(i) === key ? { ...i, quantity: i.quantity + item.quantity } : i,
-              ),
-            }
-          }
-          return { items: [...state.items, item] }
-        }),
-
-      removeItem: (productId, size, color) =>
-        set((state) => ({
-          items: state.items.filter((i) => cartItemKey(i) !== cartItemKey({ productId, size, color })),
-        })),
-
-      updateQuantity: (productId, size, color, quantity) =>
-        set((state) => ({
-          items: state.items.map((i) =>
-            cartItemKey(i) === cartItemKey({ productId, size, color }) ? { ...i, quantity } : i,
-          ),
-        })),
-
-      clear: () => set({ items: [], couponCode: null }),
-
-      applyCoupon: (code) => {
-        const normalized = code.trim().toUpperCase()
-        if (!COUPON_APPLICABLE.has(normalized)) return false
-        set({ couponCode: normalized })
-        return true
-      },
-
-      clearCoupon: () => set({ couponCode: null }),
-    }),
-    { name: 'lc-customer-cart' },
   ),
 )
 

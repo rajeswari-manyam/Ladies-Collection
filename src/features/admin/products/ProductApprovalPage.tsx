@@ -1,13 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Ban, BadgeCheck, Clock3 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   useProductApprovals,
   useApproveProduct,
   useRejectProduct,
-  useCategories,
-  useVendors,
 } from '@/features/admin/hooks'
+import { productRefName } from '@/services/product.service'
 import { PageHeader } from '@/layouts/PageHeader'
 import { DataTable, type AppColumnDef } from '@/components/ui/data-table'
 import { Button } from '@/components/ui/button'
@@ -24,8 +23,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ErrorState } from '@/components/common/state'
-import { formatCurrency, formatDate, formatNumber } from '@/utils'
-import type { ApprovalItem } from '@/features/admin/products/data/product-approvals'
+import { formatDate } from '@/utils'
+import type { ApiProduct } from '@/services/product.service'
 
 const statusTabs = [
   { value: 'all', label: 'All', icon: null },
@@ -34,48 +33,45 @@ const statusTabs = [
   { value: 'rejected', label: 'Rejected', icon: Ban },
 ] as const
 
+function approvalTone(status: string): 'outline' | 'success' | 'destructive' | 'warning' {
+  if (status === 'approved') return 'success'
+  if (status === 'rejected') return 'destructive'
+  return 'warning'
+}
+
 export function ProductApprovalPage() {
   const { data: approvals, isLoading, isError, refetch } = useProductApprovals()
-  const { data: cats } = useCategories()
-  const { data: vendors } = useVendors()
   const approve = useApproveProduct()
   const reject = useRejectProduct()
 
   const [tab, setTab] = useState('all')
-  const [rejecting, setRejecting] = useState<ApprovalItem | null>(null)
+  const [rejecting, setRejecting] = useState<ApiProduct | null>(null)
   const [reason, setReason] = useState('')
   const [pendingAction, setPendingAction] = useState(false)
-
-  const categoryName = useMemo(() => {
-    const map = new Map(cats?.categories.map((c) => [c.id, c.name]))
-    return (id: string) => map.get(id) ?? '—'
-  }, [cats])
-
-  const vendorName = useMemo(() => {
-    const map = new Map(vendors?.map((v) => [v.id, v.name]))
-    return (id: string) => map.get(id) ?? '—'
-  }, [vendors])
 
   const rows = useMemo(() => {
     if (!approvals) return []
     if (tab === 'all') return approvals
-    return approvals.filter((a) => a.status === tab)
+    return approvals.filter((a) => a.approvalStatus === tab)
   }, [approvals, tab])
 
-  const onApprove = (item: ApprovalItem) => {
-    setPendingAction(true)
-    approve.mutate(item.id, {
-      onSuccess: () => toast.success('Product approved', { description: `${item.name} is now live in the catalog.` }),
-      onError: () => toast.error('Action failed — please retry'),
-      onSettled: () => setPendingAction(false),
-    })
-  }
+  const onApprove = useCallback(
+    (item: ApiProduct) => {
+      setPendingAction(true)
+      approve.mutate(item._id, {
+        onSuccess: () => toast.success('Product approved', { description: `${item.name} is now live in the catalog.` }),
+        onError: () => toast.error('Action failed — please retry'),
+        onSettled: () => setPendingAction(false),
+      })
+    },
+    [approve],
+  )
 
   const onReject = () => {
     if (!rejecting) return
     setPendingAction(true)
     reject.mutate(
-      { id: rejecting.id, reason: reason.trim() || 'Brand guidelines not met.' },
+      { id: rejecting._id, reason: reason.trim() || 'Brand guidelines not met.' },
       {
         onSuccess: () => {
           toast.success('Product rejected', { description: `${rejecting.name} was sent back to the vendor.` })
@@ -88,15 +84,7 @@ export function ProductApprovalPage() {
     )
   }
 
-  if (isError) {
-    return (
-      <div className="rounded-2xl border border-border bg-card p-8">
-        <ErrorState onRetry={refetch} />
-      </div>
-    )
-  }
-
-  const columns = useMemo<AppColumnDef<ApprovalItem>[]>(
+  const columns = useMemo<AppColumnDef<ApiProduct>[]>(
     () => [
       {
         accessorKey: 'name',
@@ -104,49 +92,37 @@ export function ProductApprovalPage() {
         cell: ({ row }) => (
           <div className="min-w-0">
             <p className="truncate font-medium">{row.original.name}</p>
-            <p className="text-xs text-muted-foreground">
-              {row.original.brand} · {formatNumber(row.original.variantCount)} variants
-            </p>
+            <p className="text-xs text-muted-foreground">{row.original.brand || '—'}</p>
           </div>
         ),
       },
       {
         accessorKey: 'categoryId',
         header: 'Category',
-        cell: ({ row }) => <Badge variant="outline">{categoryName(row.original.categoryId)}</Badge>,
+        cell: ({ row }) => (
+          <Badge variant="outline">{productRefName(row.original.categoryId) || '—'}</Badge>
+        ),
       },
       {
         accessorKey: 'vendorId',
         header: 'Vendor',
-        cell: ({ row }) => <span className="text-muted-foreground">{vendorName(row.original.vendorId)}</span>,
+        cell: ({ row }) => <span className="text-muted-foreground">{productRefName(row.original.vendorId) || '—'}</span>,
       },
       {
-        accessorKey: 'price',
-        header: 'Listed price',
+        accessorKey: 'createdAt',
+        header: 'Submitted',
         cell: ({ row }) => (
-          <div>
-            <p className="font-semibold">{formatCurrency(row.original.price)}</p>
-            {row.original.compareAtPrice != null && (
-              <p className="text-xs text-muted-foreground line-through">
-                {formatCurrency(row.original.compareAtPrice)}
-              </p>
-            )}
-          </div>
+          <span className="text-muted-foreground">
+            {row.original.createdAt ? formatDate(row.original.createdAt) : '—'}
+          </span>
         ),
       },
       {
-        accessorKey: 'submittedAt',
-        header: 'Submitted',
-        cell: ({ row }) => <span className="text-muted-foreground">{formatDate(row.original.submittedAt)}</span>,
-      },
-      {
-        accessorKey: 'status',
+        accessorKey: 'approvalStatus',
         header: 'Status',
         cell: ({ row }) => (
-          <Badge
-            variant={row.original.status === 'pending' ? 'outline' : row.original.status === 'approved' ? 'success' : 'destructive'}
-          >
-            {row.original.status[0].toUpperCase() + row.original.status.slice(1)}
+          <Badge variant={approvalTone(row.original.approvalStatus)} className="capitalize">
+            {row.original.approvalStatus}
           </Badge>
         ),
       },
@@ -155,15 +131,11 @@ export function ProductApprovalPage() {
         header: () => <span className="sr-only">Actions</span>,
         cell: ({ row }) => {
           const item = row.original
-          if (item.status === 'approved') {
+          if (item.approvalStatus === 'approved') {
             return <Badge variant="outline">Live in catalog</Badge>
           }
-          if (item.status === 'rejected') {
-            return (
-              <span className="text-xs italic text-muted-foreground" title={item.reason ?? undefined}>
-                View rejection
-              </span>
-            )
+          if (item.approvalStatus === 'rejected') {
+            return <span className="text-xs italic text-muted-foreground">Rejected</span>
           }
           return (
             <div className="flex items-center gap-1.5">
@@ -180,8 +152,16 @@ export function ProductApprovalPage() {
         },
       },
     ],
-    [categoryName, vendorName, pendingAction],
+    [onApprove, pendingAction],
   )
+
+  if (isError) {
+    return (
+      <div className="rounded-2xl border border-border bg-card p-8">
+        <ErrorState onRetry={refetch} />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -210,7 +190,7 @@ export function ProductApprovalPage() {
         pageSize={8}
         toolbar={
           <p className="text-xs text-muted-foreground">
-            {approvals?.filter((a) => a.status === 'pending').length ?? 0} listing(s) awaiting review
+            {approvals?.filter((a) => a.approvalStatus === 'pending').length ?? 0} listing(s) awaiting review
           </p>
         }
       />

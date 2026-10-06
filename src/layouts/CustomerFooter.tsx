@@ -25,8 +25,8 @@ export function StoreFooter() {
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Shop</p>
           <ul className="mt-3 space-y-2 text-sm">
             <li><Link to="/shop/categories" className="hover:text-primary">Categories</Link></li>
-            <li><Link to="/shop/collections?sort=bestselling" className="hover:text-primary">Bestsellers</Link></li>
-            <li><Link to="/shop/collections?sort=newest" className="hover:text-primary">New arrivals</Link></li>
+            <li><Link to="/shop/collections?collection=best" className="hover:text-primary">Bestsellers</Link></li>
+            <li><Link to="/shop/collections?collection=new" className="hover:text-primary">New arrivals</Link></li>
             <li><Link to="/shop/search" className="hover:text-primary">Search</Link></li>
           </ul>
         </div>

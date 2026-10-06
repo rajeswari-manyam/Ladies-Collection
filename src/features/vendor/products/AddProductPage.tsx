@@ -3,15 +3,15 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { ArrowLeft, Plus, Save } from 'lucide-react'
+import { ArrowLeft, Plus, Save, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { useCreateVendorProduct } from '@/features/vendor/hooks'
+import { useCreateVendorProduct, useCatalogOptions, useVendorSetupStatus } from '@/features/vendor/hooks'
+import { BusinessSetupGate } from '@/features/vendor/products/BusinessSetupGate'
 import { PageHeader } from '@/layouts/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
@@ -21,66 +21,86 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-export const VENDOR_CATEGORIES = ['Sarees', 'Kurtas & Tunics', 'Dresses', 'Ethnic Sets', 'Accessories']
-
 const schema = z.object({
   name: z.string().min(3, 'Name must be at least 3 characters'),
-  category: z.string().min(1, 'Select a category'),
-  color: z.string().min(1, 'Add a color'),
+  slug: z.string().optional(),
+  brand: z.string().optional(),
   description: z.string().min(10, 'Add a short description'),
-  price: z.coerce.number().positive('Price must be positive'),
-  mrp: z.string().optional(),
-  stock: z.coerce.number().min(0).int(),
-  tags: z.string(),
-  featured: z.boolean().default(false),
+  images: z.string().optional(),
 })
 
 type FormValues = z.infer<typeof schema>
 
+interface SpecRow {
+  key: string
+  value: string
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function parseImages(raw: string): string[] {
+  return raw
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
 export function VendorAddProductPage() {
   const navigate = useNavigate()
   const create = useCreateVendorProduct()
+  const { data: catalog } = useCatalogOptions()
+  const { isComplete: setupComplete } = useVendorSetupStatus()
   const {
     register,
     handleSubmit,
-    setValue,
-    watch,
     formState: { errors },
   } = useForm<FormValues>({
-    resolver: zodResolver(schema) as Resolver<FormValues, any, any>,
-    defaultValues: {
-      name: '',
-      category: '',
-      color: '',
-      description: '',
-      price: 0,
-      mrp: '',
-      stock: 0,
-      tags: '',
-      featured: false,
-    },
+    resolver: zodResolver(schema) as unknown as Resolver<FormValues>,
+    defaultValues: { name: '', slug: '', brand: '', description: '', images: '' },
   })
+  const [categoryId, setCategoryId] = useState('')
+  const [subCategoryId, setSubCategoryId] = useState('')
+  const [specs, setSpecs] = useState<SpecRow[]>([{ key: '', value: '' }])
   const [saving, setSaving] = useState(false)
 
+  const subcategories = (catalog?.subcategories ?? []).filter((s) => s.categoryId === categoryId)
+
   const submit = async (values: FormValues) => {
+    if (!setupComplete) {
+      toast.error('Complete your business setup before adding products')
+      return
+    }
+    if (!categoryId) {
+      toast.error('Select a category')
+      return
+    }
+    if (subcategories.length > 0 && !subCategoryId) {
+      toast.error('Select a subcategory')
+      return
+    }
     setSaving(true)
     try {
       await create.mutateAsync({
+        categoryId,
+        subCategoryId: subCategoryId || undefined,
         name: values.name,
-        category: values.category,
-        color: values.color,
+        slug: slugify(values.slug || values.name),
         description: values.description,
-        price: values.price,
-        mrp: values.mrp ? Number(values.mrp) : null,
-        stock: values.stock,
-        tags: values.tags
-          .split(',')
-          .map((t) => t.trim())
-          .filter(Boolean),
-        featured: values.featured,
+        brand: values.brand?.trim() || undefined,
+        images: parseImages(values.images ?? ''),
+        specifications: specs.filter((s) => s.key.trim()).reduce<Record<string, string>>((acc, s) => {
+          acc[s.key.trim()] = s.value.trim()
+          return acc
+        }, {}),
       })
       toast.success('Product submitted', {
-        description: `${values.name} is now a draft and ready for review.`,
+        description: `${values.name} is now pending review.`,
       })
       navigate('/vendor/products')
     } catch {
@@ -99,19 +119,20 @@ export function VendorAddProductPage() {
         </Link>
       </Button>
 
-      <PageHeader
-        eyebrow="Catalog"
-        title="Add product"
-        description="Create a new listing for Fashion Trends. It will be saved as a draft for review."
-        actions={
-          <Button onClick={handleSubmit(submit)} disabled={saving}>
-            <Save className="size-4" />
-            {saving ? 'Saving…' : 'Save product'}
-          </Button>
-        }
-      />
+      <BusinessSetupGate>
+        <PageHeader
+          eyebrow="Catalog"
+          title="Add product"
+          description="Create a new listing for Fashion Trends. It will be submitted for review."
+          actions={
+            <Button onClick={handleSubmit(submit)} disabled={saving}>
+              <Save className="size-4" />
+              {saving ? 'Saving…' : 'Save product'}
+            </Button>
+          }
+        />
 
-      <form className="grid grid-cols-1 gap-4 xl:grid-cols-3" onSubmit={handleSubmit(submit)}>
+        <form className="grid grid-cols-1 gap-4 xl:grid-cols-3" onSubmit={handleSubmit(submit)}>
         <Card className="xl:col-span-2">
           <CardHeader>
             <CardTitle>Product details</CardTitle>
@@ -123,26 +144,21 @@ export function VendorAddProductPage() {
               <Input id="name" placeholder="e.g. Banarasi Silk Saree" {...register('name')} />
               {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
             </div>
-            <div className="space-y-1.5">
-              <Label>Category</Label>
-              <Select value={watch('category')} onValueChange={(v) => setValue('category', v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {VENDOR_CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.category && <p className="text-xs text-destructive">{errors.category.message}</p>}
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="slug">Slug</Label>
+              <Input id="slug" placeholder="Auto-generated from name, or set your own" {...register('slug')} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="color">Color</Label>
-              <Input id="color" placeholder="e.g. Teal" {...register('color')} />
-              {errors.color && <p className="text-xs text-destructive">{errors.color.message}</p>}
+              <Label htmlFor="brand">Brand</Label>
+              <Input id="brand" placeholder="e.g. Saree House" {...register('brand')} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="images">Image URLs</Label>
+              <Input
+                id="images"
+                placeholder="https://… , https://… (comma separated)"
+                {...register('images')}
+              />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="description">Short description</Label>
@@ -154,40 +170,82 @@ export function VendorAddProductPage() {
               />
               {errors.description && <p className="text-xs text-destructive">{errors.description.message}</p>}
             </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="tags">Tags</Label>
-              <Input id="tags" placeholder="Comma separated, e.g. best-seller, bridal, saree" {...register('tags')} />
-            </div>
           </CardContent>
         </Card>
 
         <div className="flex flex-col gap-4">
           <Card>
             <CardHeader>
-              <CardTitle>Pricing & stock</CardTitle>
-              <CardDescription>Set the selling price and availability.</CardDescription>
+              <CardTitle>Category & specifications</CardTitle>
+              <CardDescription>Where the product appears and its key attributes.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="price">Price (₹)</Label>
-                <Input id="price" type="number" step="1" placeholder="0" {...register('price')} />
-                {errors.price && <p className="text-xs text-destructive">{errors.price.message}</p>}
+                <Label>Category</Label>
+                <Select value={categoryId} onValueChange={(v) => { setCategoryId(v); setSubCategoryId('') }}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(catalog?.categories ?? []).map((c) => (
+                      <SelectItem key={c._id} value={c._id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="mrp">Compare-at price (MRP)</Label>
-                <Input id="mrp" type="number" step="1" placeholder="optional" {...register('mrp')} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="stock">Stock units</Label>
-                <Input id="stock" type="number" {...register('stock')} />
-                {errors.stock && <p className="text-xs text-destructive">{errors.stock.message}</p>}
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-border p-3">
-                <div>
-                  <p className="text-sm font-medium">Featured listing</p>
-                  <p className="text-xs text-muted-foreground">Promote this product on the marketplace</p>
+              {subcategories.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label>Subcategory</Label>
+                  <Select value={subCategoryId} onValueChange={setSubCategoryId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select subcategory" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {subcategories.map((s) => (
+                        <SelectItem key={s._id} value={s._id}>
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <Switch checked={watch('featured')} onCheckedChange={(v) => setValue('featured', v)} />
+              )}
+              <div className="space-y-2">
+                <Label>Specifications</Label>
+                {specs.map((spec, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <Input
+                      placeholder="Key (e.g. fabric)"
+                      value={spec.key}
+                      onChange={(e) => setSpecs((list) => list.map((s, j) => (j === i ? { ...s, key: e.target.value } : s)))}
+                    />
+                    <Input
+                      placeholder="Value (e.g. Pure Silk)"
+                      value={spec.value}
+                      onChange={(e) => setSpecs((list) => list.map((s, j) => (j === i ? { ...s, value: e.target.value } : s)))}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setSpecs((list) => list.filter((_, j) => j !== i))}
+                      aria-label="Remove specification"
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSpecs((list) => [...list, { key: '', value: '' }])}
+                >
+                  <Plus className="size-3.5" />
+                  Add specification
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -198,6 +256,7 @@ export function VendorAddProductPage() {
           </Button>
         </div>
       </form>
+      </BusinessSetupGate>
     </div>
   )
 }

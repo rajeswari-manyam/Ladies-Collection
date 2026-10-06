@@ -1,18 +1,26 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { UserPlus } from 'lucide-react'
+import { Store, User, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
-import { useAuthStore } from '@/store/appStore'
+import { useAuthStore, useVendorStore } from '@/store/appStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { cn } from '@/utils'
+
+const ROLES = [
+  { id: 'customer', label: 'Customer', hint: 'Shop and order products', icon: User },
+  { id: 'vendor', label: 'Vendor', hint: 'Sell your products here', icon: Store },
+] as const
 
 export function RegisterPage() {
   const register = useAuthStore((s) => s.register)
+  const registerVendor = useVendorStore((s) => s.register)
   const navigate = useNavigate()
   const [params] = useSearchParams()
+  const [role, setRole] = useState<'customer' | 'vendor'>('customer')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [mobile, setMobile] = useState('')
@@ -27,6 +35,12 @@ export function RegisterPage() {
     setBusy(true)
     setError(null)
     try {
+      if (role === 'vendor') {
+        await registerVendor(name, email, mobile, password)
+        toast.success('Store created', { description: 'Welcome to the vendor portal!' })
+        navigate('/vendor', { replace: true })
+        return
+      }
       await register(name, email, mobile, password)
       toast.success('Account created', { description: 'Welcome to Ladies Collection!' })
       navigate(redirect, { replace: true })
@@ -45,6 +59,31 @@ export function RegisterPage() {
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Register as</Label>
+            <div className="grid grid-cols-2 gap-2.5">
+              {ROLES.map(({ id, label, hint, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setRole(id)}
+                  aria-pressed={role === id}
+                  className={cn(
+                    'flex items-center gap-2.5 rounded-2xl border-2 p-3 text-left transition-colors',
+                    role === id ? 'border-primary bg-blush-50' : 'border-border hover:border-primary/40',
+                  )}
+                >
+                  <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', role === id ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}>
+                    <Icon className="size-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-foreground">{label}</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">{hint}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="space-y-1.5">
             <Label htmlFor="name">Full name</Label>
             <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Ananya Reddy" />
@@ -66,14 +105,20 @@ export function RegisterPage() {
 
           <Button type="submit" className="w-full" disabled={busy}>
             <UserPlus className="size-4" />
-            {busy ? 'Creating…' : 'Create account'}
+            {busy ? 'Creating…' : role === 'vendor' ? 'Create store' : 'Create account'}
           </Button>
 
           <p className="pt-1 text-center text-sm text-muted-foreground">
             Already a member?{' '}
-            <Link to={`/shop/login${redirect !== '/shop' ? `?redirect=${redirect}` : ''}`} className="font-medium text-primary hover:underline">
-              Sign in
-            </Link>
+            {role === 'vendor' ? (
+              <Link to="/vendor/login" className="font-medium text-primary hover:underline">
+                Sign in
+              </Link>
+            ) : (
+              <Link to={`/shop/login${redirect !== '/shop' ? `?redirect=${redirect}` : ''}`} className="font-medium text-primary hover:underline">
+                Sign in
+              </Link>
+            )}
           </p>
         </form>
       </CardContent>

@@ -1,4 +1,5 @@
 import {
+  Banknote,
   Boxes,
   LayoutDashboard,
   Package,
@@ -6,6 +7,7 @@ import {
   ShoppingBag,
   Store,
   Truck,
+  Undo2,
   UserRound,
   Wallet,
 } from 'lucide-react'
@@ -29,6 +31,7 @@ export const vendorNavSections: NavSection[] = [
     items: [
       { title: 'Orders', to: '/vendor/orders', icon: ShoppingBag },
       { title: 'Shipping', to: '/vendor/shipping', icon: Truck },
+      { title: 'Returns', to: '/vendor/returns', icon: Undo2 },
     ],
   },
   {
@@ -36,11 +39,15 @@ export const vendorNavSections: NavSection[] = [
     items: [
       { title: 'Earnings', to: '/vendor/earnings', icon: ReceiptIndianRupee },
       { title: 'Settlements', to: '/vendor/settlements', icon: Wallet },
+      { title: 'Refunds', to: '/vendor/refunds', icon: Banknote },
     ],
   },
   {
     title: 'Account',
-    items: [{ title: 'Profile', to: '/vendor/profile', icon: UserRound }],
+    items: [
+      { title: 'Business Setup', to: '/vendor/business-setup', icon: Store },
+      { title: 'Profile', to: '/vendor/profile', icon: UserRound },
+    ],
   },
 ]
 
@@ -54,9 +61,14 @@ export function resolveVendorTitle(pathname: string) {
   if (pathname === '/vendor/orders') return 'Orders'
   if (/^\/vendor\/orders\/[\w-]+$/.test(pathname)) return 'Order Details'
   if (pathname === '/vendor/shipping') return 'Shipping'
+  if (pathname === '/vendor/returns') return 'Returns'
+  if (/^\/vendor\/returns\/[\w-]+$/.test(pathname)) return 'Return Details'
   if (pathname === '/vendor/earnings') return 'Earnings'
   if (pathname === '/vendor/settlements') return 'Settlements'
   if (/^\/vendor\/settlements\/[\w-]+$/.test(pathname)) return 'Settlement Details'
+  if (pathname === '/vendor/refunds') return 'Refunds'
+  if (/^\/vendor\/refunds\/[\w-]+$/.test(pathname)) return 'Refund Details'
+  if (pathname === '/vendor/business-setup') return 'Business Setup'
   if (pathname === '/vendor/profile') return 'Profile'
   return 'Fashion Trends'
 }

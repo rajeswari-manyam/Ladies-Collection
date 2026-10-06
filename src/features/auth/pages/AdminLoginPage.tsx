@@ -59,7 +59,7 @@ export function AdminLoginPage() {
               id="email"
               type="email"
               autoComplete="username"
-              placeholder="admin@ladiescollection.demo"
+              placeholder={ADMIN_EMAIL}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
@@ -99,8 +99,8 @@ export function AdminLoginPage() {
         <div className="mt-6 flex items-start gap-2.5 rounded-2xl bg-blush-50 px-4 py-3 text-xs text-muted-foreground">
           <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
           <p>
-            Demo access — use <span className="font-semibold text-foreground">{ADMIN_EMAIL}</span> with any password of 6+
-            characters.
+            Fixed access — <span className="font-semibold text-foreground">{ADMIN_EMAIL}</span> with password{' '}
+            <span className="font-semibold text-foreground">Admin@123</span>.
           </p>
         </div>
       </div>

@@ -1,14 +1,13 @@
-import type { StoreProduct } from '@/features/customer/types'
+import type { CatalogProduct } from '@/services/catalog.service'
 import { ProductArt } from '@/features/customer/products/components/product-art'
 import { ProductCard } from '@/features/customer/products/components/product-card'
 import { Skeleton } from '@/components/ui/skeleton'
 
 interface ProductGridProps {
-  products: StoreProduct[]
+  products: CatalogProduct[]
   loading?: boolean
   emptyTitle?: string
   emptyHint?: string
-  compact?: boolean
 }
 
 export function ProductGrid({
@@ -16,7 +15,6 @@ export function ProductGrid({
   loading = false,
   emptyTitle = 'No products found',
   emptyHint = 'Try adjusting your search or filters.',
-  compact = false,
 }: ProductGridProps) {
   if (loading) {
     return (
@@ -47,7 +45,7 @@ export function ProductGrid({
   return (
     <div className="grid grid-cols-2 gap-4 sm:gap-5 md:grid-cols-3 lg:grid-cols-4">
       {products.map((product) => (
-        <ProductCard key={product.id} product={product} compact={compact} />
+        <ProductCard key={product.id} product={product} />
       ))}
     </div>
   )

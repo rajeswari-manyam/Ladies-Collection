@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import {
+  Banknote,
   BarChart3,
   Bell,
   Boxes,
@@ -14,6 +15,7 @@ import {
   Store,
   Tags,
   Truck,
+  Undo2,
   Wallet,
 } from 'lucide-react'
 
@@ -53,13 +55,17 @@ export const navSections: NavSection[] = [
     title: 'Orders & Payments',
     items: [
       { title: 'Orders', to: '/orders', icon: Package },
+      { title: 'Returns', to: '/returns', icon: Undo2 },
       { title: 'Payments', to: '/payments', icon: CreditCard },
       { title: 'Shipping & Tracking', to: '/shipments', icon: Truck },
     ],
   },
   {
     title: 'Payouts',
-    items: [{ title: 'Vendor Settlements', to: '/settlements', icon: Wallet }],
+    items: [
+      { title: 'Vendor Settlements', to: '/settlements', icon: Wallet },
+      { title: 'Refunds', to: '/refunds', icon: Banknote },
+    ],
   },
   {
     title: 'Insights & System',
@@ -82,6 +88,8 @@ export const routeTitles: Record<string, string> = {
   '/inventory': 'Inventory',
   '/vendors': 'Vendors',
   '/orders': 'Orders',
+  '/returns': 'Returns',
+  '/refunds': 'Refunds',
   '/payments': 'Payments',
   '/shipments': 'Shipping & Tracking',
   '/settlements': 'Vendor Settlements',
@@ -95,6 +103,8 @@ export const routeTitles: Record<string, string> = {
 const detailPrefixes: Record<string, string> = {
   '/vendors/': 'Vendor Details',
   '/orders/': 'Order Details',
+  '/returns/': 'Return Details',
+  '/refunds/': 'Refund Details',
   '/settlements/': 'Settlement Details',
 }
 

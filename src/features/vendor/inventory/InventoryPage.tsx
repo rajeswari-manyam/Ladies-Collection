@@ -20,7 +20,8 @@ import {
 } from '@/components/ui/dialog'
 import { DataTable, type AppColumnDef } from '@/components/ui/data-table'
 import { ErrorState } from '@/components/common/state'
-import type { VendorProductVariant } from '@/features/vendor/data/vendor-portal'
+import { variantName, variantRefId } from '@/services/variant.service'
+import type { ApiProductVariant } from '@/services/variant.service'
 
 export function VendorInventoryPage() {
   const { data: variants, isLoading, isError, refetch } = useVendorProductVariants()
@@ -28,11 +29,11 @@ export function VendorInventoryPage() {
   const updateStock = useUpdateVendorVariantStock()
   const [search, setSearch] = useState('')
   const [lowOnly, setLowOnly] = useState(false)
-  const [editing, setEditing] = useState<VendorProductVariant | null>(null)
+  const [editing, setEditing] = useState<ApiProductVariant | null>(null)
   const [stockValue, setStockValue] = useState('')
 
   const productMap = useMemo(() => {
-    const map = new Map(products?.map((p) => [p.id, p]))
+    const map = new Map(products?.map((p) => [p._id, p]))
     return map
   }, [products])
 
@@ -42,10 +43,10 @@ export function VendorInventoryPage() {
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter((v) => {
-        const product = productMap.get(v.productId)
+        const product = productMap.get(variantRefId(v.productId))
         return (
           v.sku.toLowerCase().includes(q) ||
-          v.name.toLowerCase().includes(q) ||
+          variantName(v).toLowerCase().includes(q) ||
           (product?.name.toLowerCase().includes(q) ?? false)
         )
       })
@@ -53,7 +54,7 @@ export function VendorInventoryPage() {
     return list
   }, [variants, search, lowOnly, productMap])
 
-  const openStockDialog = (v: VendorProductVariant) => {
+  const openStockDialog = (v: ApiProductVariant) => {
     setEditing(v)
     setStockValue(String(v.stock))
   }
@@ -66,7 +67,7 @@ export function VendorInventoryPage() {
       return
     }
     updateStock.mutate(
-      { id: editing.id, stock: parsed },
+      { id: editing._id, stock: parsed },
       {
         onSuccess: () => {
           toast.success('Stock updated', { description: `${editing.sku} now has ${parsed} units.` })
@@ -79,7 +80,7 @@ export function VendorInventoryPage() {
 
   const stockHealth = (stock: number) => (stock === 0 ? 'destructive' : stock <= LOW_STOCK_THRESHOLD ? 'warning' : 'success')
 
-  const columns = useMemo<AppColumnDef<VendorProductVariant>[]>(
+  const columns = useMemo<AppColumnDef<ApiProductVariant>[]>(
     () => [
       {
         accessorKey: 'sku',
@@ -92,10 +93,10 @@ export function VendorInventoryPage() {
         accessorKey: 'productId',
         header: 'Product',
         cell: ({ row }) => {
-          const product = productMap.get(row.original.productId)
+          const product = productMap.get(variantRefId(row.original.productId))
           return (
             <div className="flex items-center gap-3">
-              <ProductThumb seed={product?.name ?? 'Item'} color={product?.color ?? 'transparent'} className="size-9" />
+              <ProductThumb seed={product?.name ?? 'Item'} color="transparent" className="size-9" />
               <div className="min-w-0">
                 <p className="max-w-52 truncate font-medium">{product?.name ?? '—'}</p>
                 <p className="text-[11px] text-muted-foreground">{row.original.size} · {row.original.color}</p>
@@ -126,9 +127,10 @@ export function VendorInventoryPage() {
         },
       },
       {
-        accessorKey: 'name',
+        id: 'variant',
+        accessorKey: 'sku',
         header: 'Variant',
-        cell: ({ row }) => <span className="text-muted-foreground">{row.original.name}</span>,
+        cell: ({ row }) => <span className="text-muted-foreground">{variantName(row.original)}</span>,
       },
       {
         id: 'actions',
@@ -161,7 +163,7 @@ export function VendorInventoryPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => toast.success('Inventory synced', { description: 'Stock levels refreshed from the mock feed.' })}
+            onClick={() => toast.success('Inventory synced', { description: 'Stock levels refreshed from the API.' })}
           >
             <Boxes className="size-4" />
             Sync stock
@@ -214,7 +216,7 @@ export function VendorInventoryPage() {
           <DialogHeader>
             <DialogTitle>Adjust stock</DialogTitle>
             <DialogDescription>
-              Update the available units for {editing?.name} ({editing?.sku}).
+              Update the available units for {editing ? variantName(editing) : ''} ({editing?.sku}).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-1.5">

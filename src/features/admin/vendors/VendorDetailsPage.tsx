@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
+  Ban,
   Globe,
   Mail,
   MapPin,
@@ -12,7 +13,15 @@ import {
   Wallet,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { useVendors, useProducts, useCategories, useSettlements, useToggleVendorStatus } from '@/features/admin/hooks'
+import {
+  useVendors,
+  useProducts,
+  useCategories,
+  useSettlements,
+  useToggleVendorStatus,
+  useApproveVendor,
+  useRejectVendor,
+} from '@/features/admin/hooks'
 import { PageHeader } from '@/layouts/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -31,6 +40,8 @@ export function VendorDetailsPage() {
   const { data: cats } = useCategories()
   const { data: settlements } = useSettlements()
   const toggleStatus = useToggleVendorStatus()
+  const approveVendor = useApproveVendor()
+  const rejectVendor = useRejectVendor()
 
   const vendor = vendors?.find((v) => v.id === id)
 
@@ -88,8 +99,32 @@ export function VendorDetailsPage() {
   const toggle = (v: Vendor) => {
     const action = v.status === 'suspended' ? 'reactivated' : 'suspended'
     toggleStatus.mutate(v.id, {
-      onSuccess: () => toast.success(`Vendor ${action}`, { description: `${v.name} was updated.` }),
+      onSuccess: () => {
+        toast.success(`Vendor ${action}`, { description: `${v.name} was updated.` })
+        refetch()
+      },
       onError: () => toast.error('Update failed — please retry'),
+    })
+  }
+
+  const handleApprove = (v: Vendor) => {
+    approveVendor.mutate(v.id, {
+      onSuccess: () => {
+        toast.success('Vendor approved', { description: `${v.name} is now verified on the marketplace.` })
+        refetch()
+      },
+      onError: (err) => toast.error(err instanceof Error ? err.message : 'Approval failed — please retry'),
+    })
+  }
+
+  const handleReject = (v: Vendor) => {
+    if (!window.confirm(`Reject vendor "${v.name}"? They will be notified and cannot sell until re-approved.`)) return
+    rejectVendor.mutate(v.id, {
+      onSuccess: () => {
+        toast.success('Vendor rejected', { description: `${v.name} was rejected.` })
+        refetch()
+      },
+      onError: (err) => toast.error(err instanceof Error ? err.message : 'Rejection failed — please retry'),
     })
   }
 
@@ -107,14 +142,28 @@ export function VendorDetailsPage() {
           title={vendor.name}
           description={`${categoryName(vendor.category)} partner since ${formatDate(vendor.joined)}`}
           actions={
-            <Button
-              variant={vendor.status === 'suspended' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => toggle(vendor)}
-            >
-              {vendor.status === 'suspended' ? <Play className="size-4" /> : <Pause className="size-4" />}
-              {vendor.status === 'suspended' ? 'Reactivate' : 'Suspend vendor'}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {vendor.verificationStatus === 'pending' && (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => handleReject(vendor)}>
+                    <Ban className="size-4" />
+                    Reject
+                  </Button>
+                  <Button size="sm" onClick={() => handleApprove(vendor)}>
+                    <ShieldCheck className="size-4" />
+                    Approve
+                  </Button>
+                </>
+              )}
+              <Button
+                variant={vendor.status === 'suspended' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => toggle(vendor)}
+              >
+                {vendor.status === 'suspended' ? <Play className="size-4" /> : <Pause className="size-4" />}
+                {vendor.status === 'suspended' ? 'Reactivate' : 'Suspend vendor'}
+              </Button>
+            </div>
           }
         />
       </div>

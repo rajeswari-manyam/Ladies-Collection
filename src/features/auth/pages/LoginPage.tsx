@@ -3,24 +3,18 @@ import type { FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, LogIn } from 'lucide-react'
 import { toast } from 'sonner'
-import { useAuthStore, ADMIN_EMAIL, VENDOR_EMAIL } from '@/store/appStore'
+import { useAuthStore } from '@/store/appStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
-const PORTAL_DEMO_ACCOUNTS = [
-  { role: 'Customer', to: '/shop/login', email: 'ananya@example.com', password: 'any 4+ characters' },
-  { role: 'Vendor', to: '/vendor/login', email: VENDOR_EMAIL, password: 'any 6+ characters' },
-  { role: 'Admin', to: '/login', email: ADMIN_EMAIL, password: 'any 6+ characters' },
-]
-
 export function LoginPage() {
   const login = useAuthStore((s) => s.login)
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const [email, setEmail] = useState('ananya@example.com')
-  const [password, setPassword] = useState('ladies123')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -33,7 +27,7 @@ export function LoginPage() {
     setError(null)
     try {
       await login(email, password)
-      toast.success('Welcome back, Ananya!')
+      toast.success('Welcome back!')
       navigate(redirect, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
@@ -102,27 +96,6 @@ export function LoginPage() {
               Create an account
             </Link>
           </p>
-
-          <div className="rounded-2xl bg-blush-50 px-4 py-3 text-xs text-muted-foreground">
-            <p className="font-semibold text-primary">Demo accounts — all portals</p>
-            <div className="mt-2 space-y-2">
-              {PORTAL_DEMO_ACCOUNTS.map((acc) => (
-                <div key={acc.role} className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-medium text-foreground">{acc.role}</p>
-                    <p className="break-all">
-                      {acc.email} · {acc.password}
-                    </p>
-                  </div>
-                  {acc.role !== 'Customer' && (
-                    <Link to={acc.to} className="shrink-0 whitespace-nowrap font-semibold text-primary hover:underline">
-                      Go to login
-                    </Link>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
         </form>
       </CardContent>
     </Card>

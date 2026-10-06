@@ -68,6 +68,11 @@ export interface VendorOrderItem {
   variantName: string
   quantity: number
   unitPrice: number
+  /**
+   * The vendor that owns this line. This is the id the shipment API expects —
+   * it is *not* the signed-in user's id, and the two differ.
+   */
+  vendorId: string
 }
 
 export interface VendorOrder {
@@ -82,6 +87,12 @@ export interface VendorOrder {
   tax: number
   total: number
   status: OrderStatus
+  /**
+   * Raw `orderStatus` from the API. The portal's `status` collapses
+   * `placed`/`payment_confirmed`/`processing` into one value, so the progress
+   * timeline reads this field to show the real step.
+   */
+  apiStatus?: string
   paymentStatus: PaymentStatus
   paymentMethod: string
   createdAt: string
@@ -98,7 +109,15 @@ export interface VendorShipment {
   origin: string
   destination: string
   status: ShipmentStatus
-  estDelivery: string
+  /** Raw `shipmentStatus` from the API, in the courier's own vocabulary. */
+  apiStatus?: string
+  /** Courier detail, populated from the shipment API. */
+  awbNumber?: string | null
+  pickupDate?: string | null
+  dispatchDate?: string | null
+  deliveredDate?: string | null
+  trackingEvents?: { status: string; location?: string; timestamp: string; description?: string }[]
+  estDelivery: string | null
   createdAt: string
 }
 
@@ -299,6 +318,7 @@ const item = (productId: string, productName: string, variantName: string, quant
   variantName,
   quantity,
   unitPrice,
+  vendorId: '',
 })
 
 export const vendorOrders: VendorOrder[] = [
@@ -440,7 +460,9 @@ export const payoutLedger: PayoutLedgerRow[] = [
 ]
 
 const labelOf = (offset: number) => {
-  const d = new Date(Date.now() - offset)
+  const now = new Date()
+  // Anchored to day 1 so shorter months cannot roll the date over and repeat a label.
+  const d = new Date(now.getFullYear(), now.getMonth() - offset, 1)
   return d.toLocaleString('en-US', { month: 'short' })
 }
 

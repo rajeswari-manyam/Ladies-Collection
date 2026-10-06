@@ -1,17 +1,26 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'motion/react'
-import { Check, LayoutGrid, Plus, Star } from 'lucide-react'
-import { useCategories } from '@/features/admin/hooks'
+import { Check, LayoutGrid, MoreHorizontal, Pencil, Plus, Star, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
+import { useCategories, useDeleteCategory } from '@/features/admin/hooks'
 import { PageHeader } from '@/layouts/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ErrorState, EmptyState } from '@/components/common/state'
 import { GradientArtwork } from '@/components/common/artwork'
 import { formatNumber } from '@/utils'
+import type { Category } from '@/types'
 import { NewCategoryDialog } from '@/features/admin/categories/components/NewCategoryDialog'
+import { EditCategoryDialog } from '@/features/admin/categories/components/EditCategoryDialog'
 import { categories as staticCategories } from '@/features/admin/categories/data/categories'
 import { subcategories as staticSubcategories } from '@/features/admin/subcategories/data/subcategories'
 
@@ -20,6 +29,10 @@ export function CategoriesPage() {
   const [view, setView] = useState<'categories' | 'subcategories'>('categories')
   const [featuredOnly, setFeaturedOnly] = useState(false)
   const [newCategoryOpen, setNewCategoryOpen] = useState(false)
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const removeCategory = useDeleteCategory()
 
   const countMap = useMemo(() => {
     const map = new Map<string, number>()
@@ -34,6 +47,19 @@ export function CategoriesPage() {
     if (featuredOnly) list = list.filter((c) => c.featured)
     return list
   }, [data, featuredOnly])
+
+  const handleDelete = (cat: Category) => {
+    if (!window.confirm(`Delete category "${cat.name}"? This cannot be undone.`)) return
+    setDeletingId(cat.id)
+    removeCategory.mutate(cat.id, {
+      onSuccess: () => {
+        toast.success('Category deleted', { description: `${cat.name} was removed.` })
+        refetch()
+      },
+      onError: (err) => toast.error(err instanceof Error ? err.message : 'Could not delete category'),
+      onSettled: () => setDeletingId(null),
+    })
+  }
 
   if (isError) {
     return (
@@ -99,6 +125,36 @@ export function CategoriesPage() {
                         <Star className="size-3 fill-current" /> Featured
                       </Badge>
                     )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="size-7 rounded-full bg-white/80 shadow-sm backdrop-blur"
+                          aria-label={`Actions for ${cat.name}`}
+                          disabled={deletingId === cat.id}
+                        >
+                          {deletingId === cat.id ? (
+                            <span className="size-3.5 animate-spin rounded-full border-2 border-primary/40 border-t-primary" />
+                          ) : (
+                            <MoreHorizontal className="size-4" />
+                          )}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuItem onClick={() => setEditingCategory(cat)}>
+                          <Pencil className="size-4" />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => handleDelete(cat)}
+                        >
+                          <Trash2 className="size-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                   <div className="space-y-3 p-4">
                     <div>
@@ -150,6 +206,18 @@ export function CategoriesPage() {
       )}
 
       <NewCategoryDialog open={newCategoryOpen} onOpenChange={setNewCategoryOpen} onCreated={refetch} />
+
+      {editingCategory && (
+        <EditCategoryDialog
+          key={editingCategory.id}
+          category={editingCategory}
+          open={!!editingCategory}
+          onOpenChange={(open) => {
+            if (!open) setEditingCategory(null)
+          }}
+          onUpdated={refetch}
+        />
+      )}
     </div>
   )
 }

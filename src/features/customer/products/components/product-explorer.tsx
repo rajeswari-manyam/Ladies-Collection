@@ -1,23 +1,24 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { SlidersHorizontal, Star, X } from 'lucide-react'
-import { storeProducts } from '@/features/customer/products/data/products'
-import { categories } from '@/features/admin/categories/data/categories'
+import { SlidersHorizontal, X } from 'lucide-react'
+import { useCatalog, useLiveCategories } from '@/features/customer/hooks'
+import { colorSwatch } from '@/services/catalog.service'
 import { ProductGrid } from '@/features/customer/products/components/product-grid'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn, colorName } from '@/utils'
 
-type SortKey = 'bestselling' | 'newest' | 'price-asc' | 'price-desc' | 'rating'
+type SortKey = 'bestselling' | 'newest' | 'price-asc' | 'price-desc'
 
 const SORT_LABELS: Record<SortKey, string> = {
   bestselling: 'Bestselling',
   newest: 'Newest first',
   'price-asc': 'Price: low to high',
   'price-desc': 'Price: high to low',
-  rating: 'Top rated',
 }
+
+const NEW_ARRIVAL_DAYS = 30
 
 interface ProductExplorerProps {
   categoryId?: string
@@ -27,44 +28,51 @@ interface ProductExplorerProps {
 
 export function ProductExplorer({ categoryId, query = '', showSearchField = false }: ProductExplorerProps) {
   const [params, setParams] = useSearchParams()
-  const [text, setText] = useState(query)
+  const [editedText, setEditedText] = useState<string | null>(null)
   const [activeSize, setActiveSize] = useState<string | null>(null)
   const [activeColor, setActiveColor] = useState<string | null>(null)
-  const [activeRating, setActiveRating] = useState<number | null>(null)
   const [maxPrice, setMaxPrice] = useState<number | null>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const text = editedText !== null ? editedText : query
 
-  useEffect(() => {
-    setText(query)
-  }, [query])
+  const { data: catalog = [], isLoading } = useCatalog()
+  const { data: liveCategories = [] } = useLiveCategories()
 
-  const sort = (params.get('sort') ?? 'bestselling') as SortKey
+  const collection = params.get('collection')
+  const defaultSort: SortKey = collection === 'new' ? 'newest' : 'bestselling'
+  const sort = (params.get('sort') ?? defaultSort) as SortKey
   const activeCategory = params.get('cat') ?? categoryId ?? null
 
   const sizes = useMemo(() => {
-    const set = new Set(storeProducts.flatMap((p) => p.sizes.map((s) => s.size)))
-    return Array.from(set)
-  }, [])
+    return Array.from(new Set(catalog.flatMap((p) => p.variants.map((v) => v.size).filter(Boolean))))
+  }, [catalog])
 
   const colors = useMemo(() => {
-    const set = new Set(storeProducts.flatMap((p) => p.colors))
-    return Array.from(set)
-  }, [])
+    return Array.from(new Set(catalog.flatMap((p) => p.colors)))
+  }, [catalog])
 
   const results = useMemo(() => {
     const term = text.trim().toLowerCase()
-    let list = storeProducts.filter((p) => {
+    let list = catalog.filter((p) => {
       if (activeCategory && p.categoryId !== activeCategory) return false
-      if (activeSize && !p.sizes.some((s) => s.size === activeSize)) return false
+      if (activeSize && !p.variants.some((v) => v.size === activeSize)) return false
       if (activeColor && !p.colors.includes(activeColor)) return false
-      if (activeRating && p.rating < activeRating) return false
       if (maxPrice && p.price > maxPrice) return false
       if (term) {
-        const haystack = [p.name, p.brand, p.categoryName, p.vendorName, ...p.tags, p.description].join(' ').toLowerCase()
+        const haystack = [p.name, p.brand, p.categoryName, p.vendorName, p.description].join(' ').toLowerCase()
         if (!haystack.includes(term)) return false
       }
       return true
     })
+
+    if (collection === 'new') {
+      const cutoff = Date.now() - NEW_ARRIVAL_DAYS * 24 * 60 * 60 * 1000
+      const recent = list.filter((p) => +new Date(p.createdAt) >= cutoff)
+      list = recent.length > 0 ? recent : [...list].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)).slice(0, 8)
+    } else if (collection === 'best') {
+      const inStock = list.filter((p) => p.stock > 0)
+      list = [...(inStock.length > 0 ? inStock : list)].sort((a, b) => b.stock - a.stock).slice(0, 8)
+    }
 
     switch (sort) {
       case 'price-asc':
@@ -73,33 +81,29 @@ export function ProductExplorer({ categoryId, query = '', showSearchField = fals
       case 'price-desc':
         list = [...list].sort((a, b) => b.price - a.price)
         break
-      case 'rating':
-        list = [...list].sort((a, b) => b.rating - a.rating)
-        break
       case 'newest':
         list = [...list].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
         break
       default:
-        list = [...list].sort((a, b) => Number(b.inBestsellers) - Number(a.inBestsellers) || b.ratingCount - a.ratingCount)
+        list = [...list].sort((a, b) => b.stock - a.stock || +new Date(b.createdAt) - +new Date(a.createdAt))
     }
     return list
-  }, [text, activeCategory, activeSize, activeColor, activeRating, maxPrice, sort])
+  }, [catalog, text, activeCategory, activeSize, activeColor, maxPrice, sort, collection])
 
-  const activeCategoryName = categories.find((c) => c.id === activeCategory)?.name ?? null
-  const hasActiveFilters = Boolean(activeSize || activeColor || activeRating || maxPrice !== null)
+  const activeCategoryName = liveCategories.find((c) => c._id === activeCategory)?.name ?? null
+  const hasActiveFilters = Boolean(activeSize || activeColor || maxPrice !== null)
   const activeFilterCount =
-    (activeSize ? 1 : 0) + (activeColor ? 1 : 0) + (activeRating ? 1 : 0) + (maxPrice !== null ? 1 : 0)
+    (activeSize ? 1 : 0) + (activeColor ? 1 : 0) + (maxPrice !== null ? 1 : 0)
 
   function clearFilters() {
     setActiveSize(null)
     setActiveColor(null)
-    setActiveRating(null)
     setMaxPrice(null)
   }
 
   function updateSort(next: SortKey) {
     const url = new URLSearchParams(params)
-    if (next === 'bestselling') url.delete('sort')
+    if (next === defaultSort) url.delete('sort')
     else url.set('sort', next)
     setParams(url, { replace: true })
   }
@@ -140,30 +144,8 @@ export function ProductExplorer({ categoryId, query = '', showSearchField = fals
                 'size-7 rounded-full border-2 transition-transform hover:scale-110',
                 activeColor === color ? 'border-primary ring-2 ring-primary/30' : 'border-border',
               )}
-              style={{ background: color }}
+              style={{ background: colorSwatch(color) }}
             />
-          ))}
-        </div>
-      </div>
-
-      <div className="space-y-2.5">
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Rating</p>
-        <div className="flex flex-wrap gap-2">
-          {[4, 3, 2].map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setActiveRating(activeRating === r ? null : r)}
-              className={cn(
-                'inline-flex items-center gap-1 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors',
-                activeRating === r
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-border bg-card text-foreground hover:border-primary/50',
-              )}
-            >
-              <Star className={cn('size-3.5', activeRating === r ? 'fill-current' : 'fill-amber-400 text-amber-400')} />
-              {r}+ & up
-            </button>
           ))}
         </div>
       </div>
@@ -207,7 +189,7 @@ export function ProductExplorer({ categoryId, query = '', showSearchField = fals
         {showSearchField && (
           <input
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => setEditedText(e.target.value)}
             placeholder="Search products, brands, colours…"
             className="mb-5 h-12 w-full rounded-2xl border border-border bg-card px-4 text-sm outline-none focus:border-primary"
           />
@@ -243,15 +225,9 @@ export function ProductExplorer({ categoryId, query = '', showSearchField = fals
             )}
             {activeColor && (
               <Badge variant="outline" className="gap-1.5">
-                <span className="size-2.5 rounded-full border border-border" style={{ background: activeColor }} />
+                <span className="size-2.5 rounded-full border border-border" style={{ background: colorSwatch(activeColor) }} />
                 {colorName(activeColor)}
                 <button type="button" onClick={() => setActiveColor(null)}><X className="size-3" /></button>
-              </Badge>
-            )}
-            {activeRating && (
-              <Badge variant="outline" className="gap-1">
-                {activeRating}+ <Star className="size-3 fill-amber-400 text-amber-400" />
-                <button type="button" onClick={() => setActiveRating(null)}><X className="size-3" /></button>
               </Badge>
             )}
             {maxPrice !== null && (
@@ -283,7 +259,11 @@ export function ProductExplorer({ categoryId, query = '', showSearchField = fals
           <div className="mb-6 rounded-2xl border border-border bg-card p-5 lg:hidden">{filterBar}</div>
         )}
 
-        <ProductGrid products={results} emptyTitle={results.length === 0 ? 'No products found' : undefined} />
+        <ProductGrid
+          products={results}
+          loading={isLoading}
+          emptyTitle={results.length === 0 ? 'No products found' : undefined}
+        />
       </div>
     </div>
   )
